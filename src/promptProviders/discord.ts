@@ -1,5 +1,6 @@
 import { Client, GatewayIntentBits, TextChannel } from "discord.js";
 import { SecretStore } from "../store/secretStore.ts";
+import { PromptProvider } from "./prompt-provider.ts";
 
 export class Discord implements PromptProvider {
     client: Client
@@ -9,7 +10,7 @@ export class Discord implements PromptProvider {
     private constructor(client: Client, mainChannel: string, token: string) {
         client.on("messageCreate", (message) => {
             const user = client.user
-            if (!user) {
+            if (!user || message.channelId != this.mainChannel) {
                 return
             }
             if (message.mentions.has(user)) {

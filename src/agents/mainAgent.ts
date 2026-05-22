@@ -2,6 +2,7 @@ import { type KnownProvider } from "@earendil-works/pi-ai";
 import { UniqueBackend } from "../backends/unique.ts";
 import { Discord } from "../promptProviders/discord.ts";
 import { type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { PromptProvider } from "../promptProviders/prompt-provider.ts";
 
 export type promptProvider = "discord"
 
