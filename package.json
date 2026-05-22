@@ -15,5 +15,8 @@
     "@earendil-works/pi-ai": "^0.75.4",
     "@earendil-works/pi-coding-agent": "^0.75.4",
     "discord.js": "^14.26.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1"
   }
 }

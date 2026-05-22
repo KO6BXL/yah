@@ -17,6 +17,10 @@ importers:
       discord.js:
         specifier: ^14.26.4
         version: 14.26.4
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.1
+        version: 25.9.1
 
 packages:
 
