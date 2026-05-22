@@ -15,7 +15,7 @@ export class UniqueBackend {
         this.model = model
     }
 
-    static async create(provider: KnownProvider, model: string) {
+    static async create(provider: KnownProvider, model: string, systemPrompt?: string) {
         const authStorage = AuthStorage.create(await FileStore.GetFullPath("auth.json"))
         if (!authStorage.hasAuth(provider)) {
             await authStorage.login(provider, {
@@ -31,11 +31,7 @@ export class UniqueBackend {
         }
         const modelRegistry = ModelRegistry.create(authStorage)
         const mod = getModel(provider, model as never)
-        const skills = await SkillsStore.CreateResourceLoader()
-        for (const diagnostic of skills.diagnostics) {
-            console.warn(`Skill ${diagnostic.type}: ${diagnostic.message}${diagnostic.path ? ` (${diagnostic.path})` : ""}`)
-        }
-        console.log(`Loaded ${skills.skills.length} skill(s); app skill directory: ${skills.skillsDir}`)
+        const skills = await SkillsStore.CreateResourceLoader({systemPrompt})
         const res = await createAgentSession({
             model: mod,
             sessionManager: SessionManager.inMemory(),

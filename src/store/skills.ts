@@ -12,6 +12,7 @@ import { FileStore } from "./fileStore.ts";
 export interface SkillsResourceLoaderOptions {
     cwd?: string;
     agentDir?: string;
+    systemPrompt?: string;
 }
 
 export interface SkillsResourceLoaderResult {
@@ -32,15 +33,24 @@ export class SkillsStore {
         return path.join(await SkillsStore.GetSkillsDir(), skillName, "SKILL.md");
     }
 
+    public static GetSystemPrompt() {
+        const base = "You are an agent that has control over a user's computer"
+    }
+
     public static async CreateResourceLoader(options: SkillsResourceLoaderOptions = {}): Promise<SkillsResourceLoaderResult> {
         const cwd = options.cwd ?? process.cwd();
         const agentDir = options.agentDir ?? getAgentDir();
+        let systemPrompt = ""
+        if (options.systemPrompt) {
+            systemPrompt = options.systemPrompt
+        }
         const skillsDir = await SkillsStore.GetSkillsDir();
         const settingsManager = SettingsManager.create(cwd, agentDir);
         const loader = new DefaultResourceLoader({
             cwd,
             agentDir,
             settingsManager,
+            systemPrompt,
             additionalSkillPaths: [skillsDir],
         });
 
