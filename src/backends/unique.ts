@@ -1,6 +1,7 @@
 import { getModel, type KnownProvider, type Model } from "@earendil-works/pi-ai";
 import { AgentSession, AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { FileStore } from "../store/fileStore.ts";
+import { SkillsStore } from "../store/skills.ts";
 export class UniqueBackend {
     private authStorage: AuthStorage
     private modelRegistry: ModelRegistry
@@ -15,7 +16,7 @@ export class UniqueBackend {
     }
 
     static async create(provider: KnownProvider, model: string) {
-        const authStorage = AuthStorage.create(FileStore.GetFullPath("auth.json"))
+        const authStorage = AuthStorage.create(await FileStore.GetFullPath("auth.json"))
         if (!authStorage.hasAuth(provider)) {
             await authStorage.login(provider, {
                 onAuth: (info) => {
@@ -30,11 +31,17 @@ export class UniqueBackend {
         }
         const modelRegistry = ModelRegistry.create(authStorage)
         const mod = getModel(provider, model as never)
+        const skills = await SkillsStore.CreateResourceLoader()
+        for (const diagnostic of skills.diagnostics) {
+            console.warn(`Skill ${diagnostic.type}: ${diagnostic.message}${diagnostic.path ? ` (${diagnostic.path})` : ""}`)
+        }
+        console.log(`Loaded ${skills.skills.length} skill(s); app skill directory: ${skills.skillsDir}`)
         const res = await createAgentSession({
             model: mod,
             sessionManager: SessionManager.inMemory(),
             authStorage: authStorage,
             modelRegistry: modelRegistry,
+            resourceLoader: skills.loader,
         })
         const session = res.session
         return new UniqueBackend(authStorage, modelRegistry, session, mod)
