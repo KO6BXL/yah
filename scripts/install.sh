@@ -13,7 +13,23 @@ for bin in pnpm bun; do
         return 1
     fi
 done
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+
+if [[ -z "$DATA_DIR" ]]; then
+    DATA_DIR="$HOME/.local/share/yah"
+    echo "Creating YAH data dir at $DATA_DIR"
+    mkdir -p $DATA_DIR
+fi
+
+
+cd "$DATA_DIR" && git clone https://github.com/KO6BXL/yah.git local-yah
+cd "$DATA_DIR" && touch .env
+cd "$DATA_DIR" && printf "DATA_DIR=$DATA_DIR\n" >> .env
+cd "$DATA_DIR" && printf "hOME=$HOME\n" >> .env
+
+cd "$DATA_DIR/local-yah" && pnpm i
+cd "$DATA_DIR/local-yah" && pnpm run build
+
+INSTALL_DIR="$DATA_DIR/local-yah"
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
@@ -25,20 +41,3 @@ case ":$PATH:" in
     echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
     ;;
 esac
-
-if [[ -z "$DATA_DIR" ]]; then
-    DATA_DIR="$HOME/.local/share/yah"
-    echo "Creating YAH data dir at $DATA_DIR"
-    mkdir -p "$DATA_DIR"
-fi
-
-mkdir -p "$INSTALL_DIR"
-
-cd "$DATA_DIR" && git clone https://github.com/KO6BXL/yah.git local-yah
-cd "$DATA_DIR" && touch .env
-cd "$DATA_DIR" && printf "$DATA_DIR\n" >> .env
-cd "$DATA_DIR" && printf "$HOME\n" >> .env
-
-cd "$DATA_DIR/local-yah" && pnpm i
-cd "$DATA_DIR/local-yah" && pnpm run build
-cd "$DATA_DIR/local-yah" && cp yah "$INSTALL_DIR/."

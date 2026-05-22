@@ -1,6 +1,10 @@
 import {env} from 'node:process'
+import dotenv from 'dotenv'
+import { FileStore } from './fileStore.ts'
+import path from 'node:path'
 
 type EnvironmentKeys = "DISCORD_BOT_TOKEN" | "DATA_DIR" | "HOME"
+dotenv.config({path: path.join(FileStore.GetDataDir(), ".env")})
 
 export class SecretStore {
     public static get(key: EnvironmentKeys) {

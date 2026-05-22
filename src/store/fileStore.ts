@@ -5,7 +5,7 @@ import { mkdir, open, readFile, stat} from "node:fs/promises"
 
 
 export class FileStore {
-    public static async GetDataDir() {
+    public static GetDataDir() {
         let dataDir = ""
         const canidate1 = SecretStore.get("DATA_DIR")
         const canidate2 = SecretStore.get("HOME")
@@ -17,16 +17,12 @@ export class FileStore {
             throw new Error("Cannot determine a safe place to put yah files")
         }
 
-        const datadirdir = await stat(dataDir)
-        if (!datadirdir.isDirectory()){
-            await mkdir(dataDir)
-        }
         return dataDir
     }
 
     public static async Read(relativeFilepath: string) {
         try {
-            const fullPath = path.join(await FileStore.GetDataDir(), relativeFilepath)
+            const fullPath = path.join(FileStore.GetDataDir(), relativeFilepath)
             const fd = await open(fullPath)
             const contents = await readFile(fd)
             return contents
@@ -37,7 +33,7 @@ export class FileStore {
 
     public static async Write(relativeFilepath: string, buffer: string | Uint8Array) {
         try {
-            const fullPath = path.join(await FileStore.GetDataDir(), relativeFilepath)
+            const fullPath = path.join(FileStore.GetDataDir(), relativeFilepath)
             const fd = await open(fullPath)
             if (typeof buffer === "string") {
                 buffer = Buffer.from(buffer)
@@ -50,7 +46,7 @@ export class FileStore {
 
     public static async Exists(relativeFilepath: string) {
         try {
-            const fullPath = path.join(await FileStore.GetDataDir(), relativeFilepath)
+            const fullPath = path.join(FileStore.GetDataDir(), relativeFilepath)
             const stats = await stat(fullPath)
             return stats.isFile() || stats.isDirectory() || stats.isSymbolicLink()
         } catch(e) {
@@ -59,6 +55,6 @@ export class FileStore {
     }
 
     public static async GetFullPath(relativeFilepath: string) {
-        return path.join(await FileStore.GetDataDir(), relativeFilepath)
+        return path.join(FileStore.GetDataDir(), relativeFilepath)
     }
 }
