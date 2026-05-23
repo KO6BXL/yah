@@ -14,9 +14,14 @@ async function kill() {
     process.exit(0)
 }
 
+async function fail() {
+    process.exit(1)
+}
+
 process.on("SIGINT", cleanUp)
 process.on("SIGTERM", cleanUp)
 process.on("SIGUSR1", kill)
+process.on("ENOENT", fail)
 
 SecretStore.init()
 const agent = await MainAgent.create()
