@@ -16,4 +16,7 @@ process.on("SIGTERM", cleanUp)
 SecretStore.init()
 const agent = await MainAgent.create()
 console.log("hi")
+if(await FileStore.Exists("session/session.jsonl")) {
+    await agent.prompt("Program crash: session reinstated")
+}
 await agent.start()

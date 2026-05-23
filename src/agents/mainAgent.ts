@@ -63,6 +63,10 @@ export class MainAgent {
 
     }
 
+    public async prompt(prompt: string) {
+        await this.backend.prompt(prompt)
+    }
+
     public static async handlePrompt(agent: MainAgent, prompt: string, user: string) {
         agent.user = user
         await agent.backend.prompt(prompt)
