@@ -1,8 +1,10 @@
 #!/bin/sh
 
-if [[ -z "$HOME" ]]; then
+set -eu
+
+if [ -z "${HOME:-}" ]; then
     echo "No home environment"
-    return 1
+    exit 1
 fi
 for bin in pnpm bun; do
     if ! command -v "$bin" >/dev/null 2>&1; then
@@ -10,14 +12,14 @@ for bin in pnpm bun; do
         echo "If you have npm installed, we strongly recommend using an alternative."
         echo "https://pnpm.io"
         echo "https://bun.com"
-        return 1
+        exit 1
     fi
 done
 
-if [[ -z "$DATA_DIR" ]]; then
+if [ -z "${DATA_DIR:-}" ]; then
     DATA_DIR="$HOME/.local/share/yah"
     echo "Creating YAH data dir at $DATA_DIR"
-    mkdir -p $DATA_DIR
+    mkdir -p "$DATA_DIR"
 fi
 
 cd "$DATA_DIR" && mkdir -p skills/better-yah
