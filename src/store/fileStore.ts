@@ -50,7 +50,7 @@ export class FileStore {
             const stats = await stat(fullPath)
             return stats.isFile() || stats.isDirectory() || stats.isSymbolicLink()
         } catch(e) {
-            throw e
+            return false
         }
     }
 
