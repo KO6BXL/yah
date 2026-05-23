@@ -26,7 +26,7 @@ process.on("ENOENT", fail)
 SecretStore.init()
 const agent = await MainAgent.create()
 console.log("hi")
+await agent.start()
 if(await FileStore.Exists("session/session.jsonl")) {
     await agent.prompt("Program stopped: session reinstated")
 }
-await agent.start()
