@@ -1,10 +1,10 @@
 import { Client, GatewayIntentBits, TextChannel } from "discord.js";
 import { SecretStore } from "../store/secretStore.ts";
-import { PromptProvider } from "./prompt-provider.ts";
+import { type PromptProvider } from "./prompt-provider.ts";
 
 export class Discord implements PromptProvider {
     client: Client
-    callbacks: ((prompt: string) => void | Promise<void>)[] = [() => {}]
+    callbacks: ((prompt: string, user: string) => void | Promise<void>)[] = [() => {}]
     mainChannel: string
     token: string
     private constructor(client: Client, mainChannel: string, token: string) {
@@ -15,7 +15,7 @@ export class Discord implements PromptProvider {
             }
             if (message.mentions.has(user)) {
                 this.callbacks.forEach((f) => {
-                    Promise.resolve(f(message.content)).catch(console.error)
+                    Promise.resolve(f(message.content, message.author.id)).catch(console.error)
                 })
             }
         })
@@ -34,14 +34,18 @@ export class Discord implements PromptProvider {
     }
 
     public  start() {
-        return this.client.login(this.token)
+        try {
+            return this.client.login(this.token)
+        } catch(e) {
+            throw e
+        }
     }
 
-    public async subscribe(callback: (prompt: string) => void | Promise<void>) {
+    public async subscribe(callback: (prompt: string, user: string) => void | Promise<void>) {
         this.callbacks.push(callback)
     }
 
-    public async post(message: string) {
+    public async post(message: string, user: string) {
         const chan = await this.client.channels.fetch(this.mainChannel)
         if (chan instanceof TextChannel) {
             chan.send(message)

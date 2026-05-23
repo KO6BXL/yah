@@ -1,5 +1,5 @@
 export interface PromptProvider {
-    subscribe(callback: (prompt: string) => void | Promise<void>): void
-    post(message: string): void
-    start(): Promise<string>
+    subscribe(callback: (prompt: string, user: string) => void | Promise<void>): void
+    post(message: string, user: string): void
+    start(): Promise<string | void>
 }

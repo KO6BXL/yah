@@ -34,7 +34,7 @@ export class SkillsStore {
     }
 
     public static GetSystemPrompt() {
-        const base = "You are an agent that has control over a user's computer"
+        return "You are an agent that has control over a user's computer"
     }
 
     public static async CreateResourceLoader(options: SkillsResourceLoaderOptions = {}): Promise<SkillsResourceLoaderResult> {
@@ -43,6 +43,8 @@ export class SkillsStore {
         let systemPrompt = ""
         if (options.systemPrompt) {
             systemPrompt = options.systemPrompt
+        } else {
+            systemPrompt = SkillsStore.GetSystemPrompt()
         }
         const skillsDir = await SkillsStore.GetSkillsDir();
         const settingsManager = SettingsManager.create(cwd, agentDir);
