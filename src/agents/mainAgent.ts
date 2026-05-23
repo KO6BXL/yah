@@ -5,6 +5,9 @@ import { type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { type PromptProvider } from "../promptProviders/prompt-provider.ts";
 import { Telegram } from "../promptProviders/telegram.ts";
 import { AgentSoul } from "../store/agentSoul.ts";
+import { loadConfig } from "../store/config.ts";
+import { FileStore } from "../store/fileStore.ts";
+import path from "node:path";
 
 export type promptProvider = "discord" | "telegram"
 
@@ -26,17 +29,18 @@ export class MainAgent {
         backend.subscribe((event) => MainAgent.handleAgentEvent(this, event))
     }
 
-    public static async create(pProvName: promptProvider, provider: KnownProvider, model: string, agentName: string, config: MainAgentConfig) {
-        const soul = await AgentSoul.getSoul(agentName)
+    public static async create() {
+        const conf = loadConfig(path.join(FileStore.GetDataDir(), "agent.yaml"))
+        const soul = await AgentSoul.getSoul(conf.agentName)
         const systemPrompt = `You are an agent that has control over a user's computer. In your description, if other files are provided to read, read them before you begin working. If there's no description, remind the user you can help them create one. Your description is: ${soul}`
-        const backend = await UniqueBackend.create(provider, model, systemPrompt)
+        const backend = await UniqueBackend.create(conf.agentProvider, conf.model, systemPrompt)
         let pProv: PromptProvider 
-        switch (pProvName) {
+        switch (conf.promptProvider) {
             case "discord":
-                if (!config.chanId) {
+                if (!conf.channelId) {
                     throw new Error("No channel ID given for discord provider")
                 }
-                pProv = await Discord.create(config.chanId)
+                pProv = await Discord.create(conf.channelId)
                 break
             case "telegram":
                 pProv = await Telegram.create()
