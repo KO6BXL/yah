@@ -20,11 +20,15 @@ if [[ -z "$DATA_DIR" ]]; then
     mkdir -p $DATA_DIR
 fi
 
-
+cd "$DATA_DIR" && mkdir -p skills/better-yah
+cd "$DATA_DIR" && mkdir -p agents
+cd "$DATA_DIR" && mkdir -p session
 cd "$DATA_DIR" && git clone https://github.com/KO6BXL/yah.git local-yah
 cd "$DATA_DIR" && touch .env
 cd "$DATA_DIR" && printf "DATA_DIR=$DATA_DIR\n" >> .env
 cd "$DATA_DIR" && printf "HOME=$HOME\n" >> .env
+
+cd "$DATA_DIR" && cp local-yah/SKILL.md skills/better-yah/.
 
 cd "$DATA_DIR/local-yah" && pnpm i
 cd "$DATA_DIR/local-yah" && pnpm run build

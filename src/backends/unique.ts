@@ -2,6 +2,7 @@ import { getModel, type KnownProvider, type Model } from "@earendil-works/pi-ai"
 import { AgentSession, AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { FileStore } from "../store/fileStore.ts";
 import { SkillsStore } from "../store/skills.ts";
+import path from "node:path";
 export class UniqueBackend {
     private authStorage: AuthStorage
     private modelRegistry: ModelRegistry
@@ -34,7 +35,7 @@ export class UniqueBackend {
         const skills = await SkillsStore.CreateResourceLoader({systemPrompt})
         const res = await createAgentSession({
             model: mod,
-            sessionManager: SessionManager.inMemory(),
+            sessionManager: SessionManager.open(path.join(FileStore.GetDataDir(), "session/session.jsonl")),
             authStorage: authStorage,
             modelRegistry: modelRegistry,
             resourceLoader: skills.loader,
