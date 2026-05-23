@@ -1,4 +1,4 @@
-import { mkdir, open, readdir, stat, readFile} from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { FileStore } from "./fileStore.ts";
 import path from "node:path";
 
@@ -17,14 +17,15 @@ export class AgentSoul {
 
     public static async getSoul(agentName: string) {
         const soulDir = await this.getAgentSoulDir(agentName)
-        const list = await readdir(soulDir)
-        let contents: string = ""
-        list.forEach(async (name) => {
-            if(name != "SOUL.md") {
-                return
+        const soulPath = path.join(soulDir, "SOUL.md")
+
+        try {
+            return await readFile(soulPath, "utf8")
+        } catch (e) {
+            if (e instanceof Error && "code" in e && e.code === "ENOENT") {
+                return ""
             }
-            contents = (await readFile(name)).toString()
-        })
-        return contents
+            throw e
+        }
     }
 }
