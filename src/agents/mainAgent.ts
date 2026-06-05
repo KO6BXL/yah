@@ -1,4 +1,3 @@
-import { type KnownProvider } from "@earendil-works/pi-ai";
 import { UniqueBackend } from "../backends/unique.ts";
 import { Discord } from "../promptProviders/discord.ts";
 import { type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
@@ -9,7 +8,7 @@ import { loadConfig } from "../store/config.ts";
 import { FileStore } from "../store/fileStore.ts";
 import path from "node:path";
 
-export type promptProvider = "discord" | "telegram"
+export type PromptProviderName = "discord" | "telegram"
 
 export type MainAgentConfig = {
     chanId?: string,
@@ -26,7 +25,9 @@ export class MainAgent {
         this.pProv = pProv
         this.user = ""
         pProv.subscribe((prompt, user) => MainAgent.handlePrompt(this, prompt, user))
-        backend.subscribe((event) => MainAgent.handleAgentEvent(this, event))
+        backend.subscribe((event) => {
+            void MainAgent.handleAgentEvent(this, event).catch(console.error)
+        })
     }
 
     public static async create() {
@@ -34,18 +35,19 @@ export class MainAgent {
         const soul = await AgentSoul.getSoul(conf.agentName)
         const systemPrompt = `You are an agent that has control over a user's computer. In your description, if other files are provided to read, read them before you begin working. If there's no description, remind the user you can help them create one. Your description is: ${soul}`
         const backend = await UniqueBackend.create(conf.agentProvider, conf.model, systemPrompt)
-        let pProv: PromptProvider 
-        switch (conf.promptProvider) {
+        const pProv: PromptProvider = await (async () => {
+            switch (conf.promptProvider) {
             case "discord":
                 if (!conf.channelId) {
                     throw new Error("No channel ID given for discord provider")
                 }
-                pProv = await Discord.create(conf.channelId)
-                break
+                return Discord.create(conf.channelId)
             case "telegram":
-                pProv = await Telegram.create()
-                break
-        }
+                return Telegram.create()
+            default:
+                throw new Error(`Unsupported prompt provider: ${conf.promptProvider satisfies never}`)
+            }
+        })()
 
         return new MainAgent(backend, pProv)
     }  
@@ -55,12 +57,7 @@ export class MainAgent {
     }
 
     public dispose() {
-        try {
-            this.backend.dispose()
-        } catch (e) {
-            throw e
-        }
-
+        this.backend.dispose()
     }
 
     public async prompt(prompt: string) {
@@ -72,7 +69,7 @@ export class MainAgent {
         await agent.backend.prompt(prompt)
     }
 
-    public static handleAgentEvent(agent: MainAgent, event: AgentSessionEvent) {
+    public static async handleAgentEvent(agent: MainAgent, event: AgentSessionEvent) {
          if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
             agent.outputBuf = agent.outputBuf.concat(event.assistantMessageEvent.delta)
         }
@@ -81,7 +78,7 @@ export class MainAgent {
             if(!agent.outputBuf) {
                 return
             }
-            agent.pProv.post(agent.outputBuf, agent.user)
+            await agent.pProv.post(agent.outputBuf, agent.user)
             agent.outputBuf = ""
         }
     }
