@@ -1,5 +1,5 @@
 import { Bot } from "grammy";
-import { type PromptProvider } from "./prompt-provider.ts";
+import { type PromptCommand, type PromptProvider } from "./prompt-provider.ts";
 import { SecretStore } from "../store/secretStore.ts";
 
 export class Telegram implements PromptProvider {
@@ -27,6 +27,12 @@ export class Telegram implements PromptProvider {
     }
     public post(message: string, user: string) {
         this.bot.api.sendMessage(user, message)
+    }
+    public async setCommands(commands: PromptCommand[]) {
+        await this.bot.api.setMyCommands(commands.map((command) => ({
+            command: command.name,
+            description: command.description,
+        })))
     }
     public async start(): Promise<void> {
         return this.bot.start()

@@ -10,4 +10,3 @@ YAH (Yet Another Harness) is a computer use agent that wraps [pi-sdk](https://gi
 
 1. Keep changes minimal. No one wants a bloated codebased that half functions. If YAH wants to have an agent modify itself, it's best to keep the ground work simple and expandable.
 2. Features to a minimum. People who use this may have their own features in mind, so don't lock them into a single way of doing stuff.
-

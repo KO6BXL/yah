@@ -1,12 +1,10 @@
-import path from "node:path";
 import { MainAgent } from "./agents/mainAgent.ts";
 import { SecretStore } from "./store/secretStore.ts";
-import { FileStore } from "./store/fileStore.ts";
-import { rm } from "node:fs/promises";
 
-async function cleanUp() {
-    const sessionPath = path.join(FileStore.GetDataDir(), "session/session.jsonl")
-    await rm(sessionPath)
+let agent: MainAgent | undefined
+
+function cleanUp() {
+    agent?.dispose()
     process.exit(0)
 }
 
@@ -24,9 +22,6 @@ process.on("SIGUSR1", kill)
 process.on("ENOENT", fail)
 
 SecretStore.init()
-const agent = await MainAgent.create()
+agent = await MainAgent.create()
 console.log("hi")
 await agent.start()
-if(await FileStore.Exists("session/session.jsonl")) {
-    await agent.prompt("Program stopped: session reinstated")
-}
