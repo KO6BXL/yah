@@ -94,8 +94,10 @@ export class MainAgent {
             return
         }
 
-        const sessionId = agent.currentSessionByUser.get(user) ?? DEFAULT_SESSION_ID
-        await agent.prompt(prompt, user, sessionId)
+        const sessionId = agent.currentSessionByUser.get(user) ?? agent.pProv.getSessionId?.(user) ?? DEFAULT_SESSION_ID
+        const sessionUser = agent.pProv.getSessionId?.(user) ? user : await agent.pProv.openSession?.(sessionId, user) ?? user
+        agent.currentSessionByUser.set(sessionUser, sessionId)
+        await agent.prompt(prompt, sessionUser, sessionId)
     }
 
     public static async handleAgentEvent(agent: MainAgent, sessionId: string, event: AgentSessionEvent) {
@@ -155,7 +157,8 @@ export class MainAgent {
         case "new": {
             const sessionId = SessionStore.normalize(parts[2] ?? `session-${Date.now()}`)
             await this.getSession(sessionId)
-            this.currentSessionByUser.set(user, sessionId)
+            const sessionUser = await this.pProv.openSession?.(sessionId, user) ?? user
+            this.currentSessionByUser.set(sessionUser, sessionId)
             return `Created and switched to session: ${sessionId}`
         }
         case "use": {
@@ -164,7 +167,8 @@ export class MainAgent {
             }
             const sessionId = SessionStore.normalize(parts[2])
             await this.getSession(sessionId)
-            this.currentSessionByUser.set(user, sessionId)
+            const sessionUser = await this.pProv.openSession?.(sessionId, user) ?? user
+            this.currentSessionByUser.set(sessionUser, sessionId)
             return `Switched to session: ${sessionId}`
         }
         case "delete": {
@@ -175,6 +179,7 @@ export class MainAgent {
             this.sessions.get(sessionId)?.backend.dispose()
             this.sessions.delete(sessionId)
             await SessionStore.delete(sessionId)
+            await this.pProv.deleteSession?.(sessionId)
             this.currentSessionByUser.forEach((currentSessionId, sessionUser) => {
                 if (currentSessionId === sessionId) {
                     this.currentSessionByUser.set(sessionUser, DEFAULT_SESSION_ID)
