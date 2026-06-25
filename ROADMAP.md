@@ -56,11 +56,11 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 7. Add Basic Memory Storage
 
-- [ ] Start with a simple local store.
-- [ ] Add create, update, archive, supersede, and list operations.
-- [ ] Avoid physical deletion except through an explicit user-owned path.
-- [ ] Add audit events for every write.
-- [ ] Keep search basic at first: scope, kind, status, and text filtering.
+- [x] Start with a simple local store.
+- [x] Add create, update, archive, supersede, and list operations.
+- [x] Avoid physical deletion except through an explicit user-owned path.
+- [x] Add audit events for every write.
+- [x] Keep search basic at first: scope, kind, status, and text filtering.
 
 ## 8. Implement Write Rules
 
