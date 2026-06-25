@@ -23,5 +23,4 @@ process.on("ENOENT", fail)
 
 SecretStore.init()
 agent = await MainAgent.create()
-console.log("hi")
 await agent.start()

@@ -1,5 +1,29 @@
 # YAH - Yet Another Harness
 
-YAH is a computer-use agent, similar to OpenClaw, that aims to be more customizable and unique to each use case. This project is inspired by and based off of [Pi](https://pi.dev/) and their SDK.
+YAH is a Discord-first computer-use agent built on the Pi SDK.
 
-This project is designed to be flexible and user-defined. Agents by default are given full access to a local copy of the repo, and can add custom functionality according to your usecase.
+This branch is being cleaned up around the Category -> Channel -> Thread model described in `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md`.
+
+- Categories hold broad shared context.
+- Channels represent separate fields of work.
+- Threads are the active task context where agent work happens.
+
+Configuration and memory management are intended to move to a web dashboard. Discord remains the lightweight task interface: mention YAH in a configured channel to start a task thread, then continue the task inside that thread.
+
+## Configuration
+
+YAH reads `$DATA_DIR/agent.yaml`.
+
+```yaml
+promptProvider: discord
+agentProvider: openai
+model: gpt-5
+channelId: "DISCORD_CHANNEL_ID"
+```
+
+Secrets live in `$DATA_DIR/.env`.
+
+```sh
+DISCORD_BOT_TOKEN=...
+DATA_DIR=/path/to/yah-data
+```

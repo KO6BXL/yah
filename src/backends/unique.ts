@@ -2,7 +2,7 @@ import { getModel, type KnownProvider, type Model } from "@earendil-works/pi-ai"
 import { AgentSession, AuthStorage, createAgentSession, ModelRegistry, SessionManager } from "@earendil-works/pi-coding-agent";
 import { FileStore } from "../store/fileStore.ts";
 import { SkillsStore } from "../store/skills.ts";
-import { SessionStore } from "../store/sessions.ts";
+import { ThreadContextStore } from "../store/threadContexts.ts";
 export class UniqueBackend {
     private authStorage: AuthStorage
     private modelRegistry: ModelRegistry
@@ -16,7 +16,7 @@ export class UniqueBackend {
         this.model = model
     }
 
-    static async create(provider: KnownProvider, model: string, sessionId: string, systemPrompt?: string) {
+    static async create(provider: KnownProvider, model: string, threadId: string, systemPrompt?: string) {
         const authStorage = AuthStorage.create(await FileStore.GetFullPath("auth.json"))
         if (!authStorage.hasAuth(provider)) {
             await authStorage.login(provider, {
@@ -35,7 +35,7 @@ export class UniqueBackend {
         const skills = await SkillsStore.CreateResourceLoader({systemPrompt})
         const res = await createAgentSession({
             model: mod,
-            sessionManager: SessionManager.open(await SessionStore.getPath(sessionId)),
+            sessionManager: SessionManager.open(await ThreadContextStore.getPath(threadId)),
             authStorage: authStorage,
             modelRegistry: modelRegistry,
             resourceLoader: skills.loader,

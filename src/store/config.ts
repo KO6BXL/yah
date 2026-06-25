@@ -6,8 +6,7 @@ const configSchema = z.object({
     promptProvider: z.enum(["discord"]),
     agentProvider: z.enum(["amazon-bedrock" , "anthropic" , "google" , "google-vertex" , "openai" , "azure-openai-responses" , "openai-codex" , "deepseek" , "github-copilot" , "xai" , "groq" , "cerebras" , "openrouter" , "vercel-ai-gateway" , "zai" , "mistral" , "minimax" , "minimax-cn" , "moonshotai" , "moonshotai-cn" , "huggingface" , "fireworks" , "together" , "opencode" , "opencode-go" , "kimi-coding" , "cloudflare-workers-ai" , "cloudflare-ai-gateway" , "xiaomi" , "xiaomi-token-plan-cn" , "xiaomi-token-plan-ams" , "xiaomi-token-plan-sgp"]),
     model: z.string(),
-    agentName: z.string(),
-    channelId: z.optional(z.string()),
+    channelId: z.string(),
 })
 
 export type Config = z.infer<typeof configSchema>

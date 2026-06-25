@@ -1,46 +1,23 @@
 import { UniqueBackend } from "../backends/unique.ts";
 import { Discord } from "../promptProviders/discord.ts";
 import { type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { type PromptCommand, type PromptProvider } from "../promptProviders/prompt-provider.ts";
-import { AgentSoul } from "../store/agentSoul.ts";
+import { type PromptProvider } from "../promptProviders/prompt-provider.ts";
 import { loadConfig } from "../store/config.ts";
 import { FileStore } from "../store/fileStore.ts";
-import { DEFAULT_SESSION_ID, SessionStore } from "../store/sessions.ts";
 import path from "node:path";
 import { type KnownProvider } from "@earendil-works/pi-ai";
 
-export type PromptProviderName = "discord"
-
-export type MainAgentConfig = {
-    chanId?: string,
-}
-
-type SessionState = {
+type ThreadState = {
     backend: UniqueBackend
     outputBuf: string
 }
-
-const PROMPT_COMMANDS: PromptCommand[] = [
-    {
-        name: "session",
-        description: "Manage YAH sessions",
-        usage: "list | current | new [name] | use <name> | delete <name>",
-    },
-    {
-        name: "sessions",
-        description: "List YAH sessions",
-        usage: "",
-    },
-]
 
 export class MainAgent {
     agentProvider: KnownProvider
     model: string
     pProv: PromptProvider
     systemPrompt: string
-    private sessions = new Map<string, SessionState>()
-    private currentSessionByUser = new Map<string, string>()
-    private userBySession = new Map<string, string>()
+    private threads = new Map<string, ThreadState>()
 
     constructor(agentProvider: KnownProvider, model: string, systemPrompt: string, pProv: PromptProvider) {
         this.agentProvider = agentProvider
@@ -52,20 +29,19 @@ export class MainAgent {
 
     public static async create() {
         const conf = loadConfig(path.join(FileStore.GetDataDir(), "agent.yaml"))
-        const soul = await AgentSoul.getSoul(conf.agentName)
-        const systemPrompt = `You are an agent that has control over a user's computer. In your description, if other files are provided to read, read them before you begin working. If there's no description, remind the user you can help them create one. Your description is: ${soul}`
+        const systemPrompt = [
+            "You are YAH, a Discord-thread agent for a user's computer.",
+            "Treat each Discord thread as the active task context.",
+            "Keep channel and category memory boundaries in mind; category-wide changes require explicit user approval.",
+        ].join(" ")
         const pProv: PromptProvider = await (async () => {
             switch (conf.promptProvider) {
             case "discord":
-                if (!conf.channelId) {
-                    throw new Error("No channel ID given for discord provider")
-                }
                 return Discord.create(conf.channelId)
             default:
                 throw new Error(`Unsupported prompt provider: ${conf.promptProvider satisfies never}`)
             }
         })()
-        await pProv.setCommands?.(PROMPT_COMMANDS)
 
         return new MainAgent(conf.agentProvider, conf.model, systemPrompt, pProv)
     }  
@@ -75,129 +51,47 @@ export class MainAgent {
     }
 
     public dispose() {
-        this.sessions.forEach((session) => session.backend.dispose())
+        this.threads.forEach((thread) => thread.backend.dispose())
     }
 
-    public async prompt(prompt: string, user = "system", sessionId = DEFAULT_SESSION_ID) {
-        const session = await this.getSession(sessionId)
-        this.userBySession.set(sessionId, user)
-        await session.backend.prompt(prompt)
+    public async prompt(prompt: string, threadId: string) {
+        const thread = await this.getThread(threadId)
+        await thread.backend.prompt(prompt)
     }
 
-    public static async handlePrompt(agent: MainAgent, prompt: string, user: string) {
-        if (agent.pProv.setCommands) {
-            const commandResponse = await agent.handleCommand(prompt, user)
-            if (commandResponse) {
-                await agent.pProv.post(commandResponse, user)
-                return
-            }
-        }
-
-        const sessionId = agent.currentSessionByUser.get(user) ?? agent.pProv.getSessionId?.(user) ?? DEFAULT_SESSION_ID
-        const sessionUser = agent.pProv.getSessionId?.(user) ? user : await agent.pProv.openSession?.(sessionId, user) ?? user
-        agent.currentSessionByUser.set(sessionUser, sessionId)
-        await agent.prompt(prompt, sessionUser, sessionId)
+    public static async handlePrompt(agent: MainAgent, prompt: string, threadId: string) {
+        await agent.prompt(prompt, threadId)
     }
 
-    public static async handleAgentEvent(agent: MainAgent, sessionId: string, event: AgentSessionEvent) {
-        const session = agent.sessions.get(sessionId)
-        if (!session) {
+    public static async handleAgentEvent(agent: MainAgent, threadId: string, event: AgentSessionEvent) {
+        const thread = agent.threads.get(threadId)
+        if (!thread) {
             return
         }
          if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-            session.outputBuf = session.outputBuf.concat(event.assistantMessageEvent.delta)
+            thread.outputBuf = thread.outputBuf.concat(event.assistantMessageEvent.delta)
         }
          if (event.type === "message_end") {
-            console.log(session.outputBuf)
-            if(!session.outputBuf) {
+            if(!thread.outputBuf) {
                 return
             }
-            const user = agent.userBySession.get(sessionId)
-            if (user) {
-                await agent.pProv.post(session.outputBuf, user)
-            }
-            session.outputBuf = ""
+            await agent.pProv.post(thread.outputBuf, threadId)
+            thread.outputBuf = ""
         }
     }
 
-    private async getSession(sessionId: string) {
-        const normalized = SessionStore.normalize(sessionId)
-        const existing = this.sessions.get(normalized)
+    private async getThread(threadId: string) {
+        const existing = this.threads.get(threadId)
         if (existing) {
             return existing
         }
 
-        const backend = await UniqueBackend.create(this.agentProvider, this.model, normalized, this.systemPrompt)
-        const session: SessionState = {backend, outputBuf: ""}
-        this.sessions.set(normalized, session)
+        const backend = await UniqueBackend.create(this.agentProvider, this.model, threadId, this.systemPrompt)
+        const thread: ThreadState = {backend, outputBuf: ""}
+        this.threads.set(threadId, thread)
         backend.subscribe((event) => {
-            void MainAgent.handleAgentEvent(this, normalized, event).catch(console.error)
+            void MainAgent.handleAgentEvent(this, threadId, event).catch(console.error)
         })
-        return session
-    }
-
-    private async handleCommand(prompt: string, user: string) {
-        const parts = prompt.trim().split(/\s+/).filter(Boolean)
-        const command = parts[0]?.toLowerCase()
-        if (!command || (command !== "/session" && command !== "/sessions")) {
-            return
-        }
-
-        if (command === "/sessions") {
-            return this.formatSessionList(user)
-        }
-
-        const action = parts[1]?.toLowerCase() ?? "help"
-        switch (action) {
-        case "list":
-            return this.formatSessionList(user)
-        case "current":
-            return `Current session: ${this.currentSessionByUser.get(user) ?? DEFAULT_SESSION_ID}`
-        case "new": {
-            const sessionId = SessionStore.normalize(parts[2] ?? `session-${Date.now()}`)
-            await this.getSession(sessionId)
-            const sessionUser = await this.pProv.openSession?.(sessionId, user) ?? user
-            this.currentSessionByUser.set(sessionUser, sessionId)
-            return `Created and switched to session: ${sessionId}`
-        }
-        case "use": {
-            if (!parts[2]) {
-                return "Usage: /session use <name>"
-            }
-            const sessionId = SessionStore.normalize(parts[2])
-            await this.getSession(sessionId)
-            const sessionUser = await this.pProv.openSession?.(sessionId, user) ?? user
-            this.currentSessionByUser.set(sessionUser, sessionId)
-            return `Switched to session: ${sessionId}`
-        }
-        case "delete": {
-            if (!parts[2]) {
-                return "Usage: /session delete <name>"
-            }
-            const sessionId = SessionStore.normalize(parts[2])
-            this.sessions.get(sessionId)?.backend.dispose()
-            this.sessions.delete(sessionId)
-            await SessionStore.delete(sessionId)
-            await this.pProv.deleteSession?.(sessionId)
-            this.currentSessionByUser.forEach((currentSessionId, sessionUser) => {
-                if (currentSessionId === sessionId) {
-                    this.currentSessionByUser.set(sessionUser, DEFAULT_SESSION_ID)
-                }
-            })
-            return `Deleted session: ${sessionId}`
-        }
-        case "help":
-            return "Usage: /session list | current | new [name] | use <name> | delete <name>"
-        default:
-            return "Unknown session command. Usage: /session list | current | new [name] | use <name> | delete <name>"
-        }
-    }
-
-    private async formatSessionList(user: string) {
-        const sessions = new Set(await SessionStore.list())
-        this.sessions.forEach((_session, sessionId) => sessions.add(sessionId))
-        sessions.add(DEFAULT_SESSION_ID)
-        const current = this.currentSessionByUser.get(user) ?? DEFAULT_SESSION_ID
-        return [...sessions].sort().map((sessionId) => sessionId === current ? `* ${sessionId}` : `  ${sessionId}`).join("\n")
+        return thread
     }
 }

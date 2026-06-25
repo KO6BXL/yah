@@ -1,45 +1,19 @@
 import {
     Client,
     GatewayIntentBits,
-    TextChannel,
-    type AnyThreadChannel,
+    type Message,
 } from "discord.js";
 import { SecretStore } from "../store/secretStore.ts";
 import { type PromptProvider } from "./prompt-provider.ts";
-import { SessionStore } from "../store/sessions.ts";
 
 export class Discord implements PromptProvider {
     client: Client
     callbacks: ((prompt: string, user: string) => void | Promise<void>)[] = [() => {}]
     mainChannel: string
     token: string
-    threadSessions = new Map<string, string>()
     private constructor(client: Client, mainChannel: string, token: string) {
         client.on("messageCreate", (message) => {
-            const user = client.user
-            if (!user || message.author.bot) {
-                return
-            }
-            if (message.channel.isThread() && message.channel.parentId === this.mainChannel) {
-                const sessionId = this.sessionIdFromThread(message.channel)
-                if (!sessionId) {
-                    return
-                }
-                this.threadSessions.set(message.channelId, sessionId)
-                this.callbacks.forEach((f) => {
-                    Promise.resolve(f(message.content.trim(), message.channelId)).catch(console.error)
-                })
-                return
-            }
-            if (message.channelId != this.mainChannel) {
-                return
-            }
-            if (message.mentions.has(user)) {
-                const prompt = message.content.replace(new RegExp(`<@!?${user.id}>`, "g"), "").trim()
-                this.callbacks.forEach((f) => {
-                    Promise.resolve(f(prompt, message.channelId)).catch(console.error)
-                })
-            }
+            void this.handleMessage(message).catch(console.error)
         })
         this.token = token
         this.client = client
@@ -63,7 +37,6 @@ export class Discord implements PromptProvider {
                         this.client.once("clientReady", () => resolve())
                     })
                 }
-                await this.client.application?.commands.set([])
                 return token
             })
         } catch(e) {
@@ -82,65 +55,37 @@ export class Discord implements PromptProvider {
         }
     }
 
-    public async openSession(sessionId: string) {
-        const normalized = SessionStore.normalize(sessionId)
-        const thread = await this.findOrCreateSessionThread(normalized)
-        this.threadSessions.set(thread.id, normalized)
-        return thread.id
-    }
-
-    public async deleteSession(sessionId: string) {
-        const normalized = SessionStore.normalize(sessionId)
-        const thread = await this.findSessionThread(normalized)
-        if (thread) {
-            this.threadSessions.delete(thread.id)
-        }
-    }
-
-    public getSessionId(user: string) {
-        return this.threadSessions.get(user)
-    }
-
-    private sessionIdFromThread(thread: Pick<AnyThreadChannel, "name">) {
-        try {
-            return SessionStore.normalize(thread.name)
-        } catch {
+    private async handleMessage(message: Message) {
+        const user = this.client.user
+        if (!user || message.author.bot) {
             return
         }
-    }
-
-    private async findOrCreateSessionThread(sessionId: string) {
-        const existing = await this.findSessionThread(sessionId)
-        if (existing) {
-            if (existing.archived) {
-                await existing.setArchived(false)
+        if (message.channel.isThread() && message.channel.parentId === this.mainChannel) {
+            this.callbacks.forEach((f) => {
+                Promise.resolve(f(message.content.trim(), message.channelId)).catch(console.error)
+            })
+            return
+        }
+        if (message.channelId != this.mainChannel) {
+            return
+        }
+        if (message.mentions.has(user)) {
+            const prompt = message.content.replace(new RegExp(`<@!?${user.id}>`, "g"), "").trim()
+            if (!prompt) {
+                return
             }
-            return existing
+            const thread = await message.startThread({
+                name: this.threadNameFor(prompt),
+                reason: "YAH task thread",
+            })
+            this.callbacks.forEach((f) => {
+                Promise.resolve(f(prompt, thread.id)).catch(console.error)
+            })
         }
-
-        const mainChannel = await this.client.channels.fetch(this.mainChannel)
-        if (!(mainChannel instanceof TextChannel)) {
-            throw new Error("Discord session threads require a text channel")
-        }
-        return mainChannel.threads.create({
-            name: sessionId,
-            reason: "YAH session thread",
-        })
     }
 
-    private async findSessionThread(sessionId: string) {
-        const mainChannel = await this.client.channels.fetch(this.mainChannel)
-        if (!(mainChannel instanceof TextChannel)) {
-            return
-        }
-
-        const active = await mainChannel.threads.fetchActive()
-        const activeThread = active.threads.find((thread) => thread.name === sessionId)
-        if (activeThread) {
-            return activeThread
-        }
-
-        const archived = await mainChannel.threads.fetchArchived()
-        return archived.threads.find((thread) => thread.name === sessionId)
+    private threadNameFor(prompt: string) {
+        const title = prompt.replace(/\s+/g, " ").trim().slice(0, 80)
+        return title || `task-${Date.now()}`
     }
 }
