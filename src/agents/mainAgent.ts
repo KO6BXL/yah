@@ -2,7 +2,6 @@ import { UniqueBackend } from "../backends/unique.ts";
 import { Discord } from "../promptProviders/discord.ts";
 import { type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { type PromptCommand, type PromptProvider } from "../promptProviders/prompt-provider.ts";
-import { Telegram } from "../promptProviders/telegram.ts";
 import { AgentSoul } from "../store/agentSoul.ts";
 import { loadConfig } from "../store/config.ts";
 import { FileStore } from "../store/fileStore.ts";
@@ -10,7 +9,7 @@ import { DEFAULT_SESSION_ID, SessionStore } from "../store/sessions.ts";
 import path from "node:path";
 import { type KnownProvider } from "@earendil-works/pi-ai";
 
-export type PromptProviderName = "discord" | "telegram"
+export type PromptProviderName = "discord"
 
 export type MainAgentConfig = {
     chanId?: string,
@@ -62,8 +61,6 @@ export class MainAgent {
                     throw new Error("No channel ID given for discord provider")
                 }
                 return Discord.create(conf.channelId)
-            case "telegram":
-                return Telegram.create()
             default:
                 throw new Error(`Unsupported prompt provider: ${conf.promptProvider satisfies never}`)
             }
@@ -88,10 +85,12 @@ export class MainAgent {
     }
 
     public static async handlePrompt(agent: MainAgent, prompt: string, user: string) {
-        const commandResponse = await agent.handleCommand(prompt, user)
-        if (commandResponse) {
-            await agent.pProv.post(commandResponse, user)
-            return
+        if (agent.pProv.setCommands) {
+            const commandResponse = await agent.handleCommand(prompt, user)
+            if (commandResponse) {
+                await agent.pProv.post(commandResponse, user)
+                return
+            }
         }
 
         const sessionId = agent.currentSessionByUser.get(user) ?? agent.pProv.getSessionId?.(user) ?? DEFAULT_SESSION_ID

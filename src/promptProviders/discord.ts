@@ -1,12 +1,11 @@
 import {
-    ApplicationCommandOptionType,
     Client,
     GatewayIntentBits,
     TextChannel,
     type AnyThreadChannel,
 } from "discord.js";
 import { SecretStore } from "../store/secretStore.ts";
-import { type PromptCommand, type PromptProvider } from "./prompt-provider.ts";
+import { type PromptProvider } from "./prompt-provider.ts";
 import { SessionStore } from "../store/sessions.ts";
 
 export class Discord implements PromptProvider {
@@ -14,7 +13,6 @@ export class Discord implements PromptProvider {
     callbacks: ((prompt: string, user: string) => void | Promise<void>)[] = [() => {}]
     mainChannel: string
     token: string
-    commands: PromptCommand[] = []
     threadSessions = new Map<string, string>()
     private constructor(client: Client, mainChannel: string, token: string) {
         client.on("messageCreate", (message) => {
@@ -43,20 +41,6 @@ export class Discord implements PromptProvider {
                 })
             }
         })
-        client.on("interactionCreate", (interaction) => {
-            if (!interaction.isChatInputCommand() || !this.isSessionChannel(interaction.channelId, interaction.channel)) {
-                return
-            }
-            if (!this.commands.some((command) => command.name === interaction.commandName)) {
-                return
-            }
-            const args = interaction.options.getString("args") ?? "";
-            const prompt = `/${interaction.commandName}${args ? ` ${args}` : ""}`;
-            interaction.reply({content: "Command received.", ephemeral: true}).catch(console.error)
-            this.callbacks.forEach((f) => {
-                Promise.resolve(f(prompt, interaction.channelId)).catch(console.error)
-            })
-        })
         this.token = token
         this.client = client
         this.mainChannel = mainChannel
@@ -74,23 +58,12 @@ export class Discord implements PromptProvider {
     public  start() {
         try {
             return this.client.login(this.token).then(async (token) => {
-                if (this.commands.length > 0) {
-                    if (!this.client.isReady()) {
-                        await new Promise<void>((resolve) => {
-                            this.client.once("clientReady", () => resolve())
-                        })
-                    }
-                    await this.client.application?.commands.set(this.commands.map((command) => ({
-                        name: command.name,
-                        description: command.description,
-                        options: command.usage ? [{
-                            name: "args",
-                            description: command.usage,
-                            type: ApplicationCommandOptionType.String,
-                            required: false,
-                        }] : [],
-                    })))
+                if (!this.client.isReady()) {
+                    await new Promise<void>((resolve) => {
+                        this.client.once("clientReady", () => resolve())
+                    })
                 }
+                await this.client.application?.commands.set([])
                 return token
             })
         } catch(e) {
@@ -107,10 +80,6 @@ export class Discord implements PromptProvider {
         if (chan?.isTextBased()) {
             await chan.send(message)
         }
-    }
-
-    public setCommands(commands: PromptCommand[]) {
-        this.commands = commands
     }
 
     public async openSession(sessionId: string) {
@@ -130,20 +99,6 @@ export class Discord implements PromptProvider {
 
     public getSessionId(user: string) {
         return this.threadSessions.get(user)
-    }
-
-    private isSessionChannel(channelId: string, channel?: {isThread(): boolean, parentId: string | null, name: string} | null) {
-        if (channelId === this.mainChannel || this.threadSessions.has(channelId)) {
-            return true
-        }
-        if (channel?.isThread() && channel.parentId === this.mainChannel) {
-            const sessionId = this.sessionIdFromThread(channel)
-            if (sessionId) {
-                this.threadSessions.set(channelId, sessionId)
-                return true
-            }
-        }
-        return false
     }
 
     private sessionIdFromThread(thread: Pick<AnyThreadChannel, "name">) {

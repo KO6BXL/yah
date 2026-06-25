@@ -15,7 +15,7 @@ This is the backends for the agent. It stores memory, runs tools, etc. Currently
 
 ## src/promptProviders/
 
-Users communicate with the agent through here. Currently set up with discord and telegram. prompt-provider.ts has an interface for this.
+Users communicate with the agent through here. Currently set up with discord. prompt-provider.ts has an interface for this.
 
 ## src/store/
 

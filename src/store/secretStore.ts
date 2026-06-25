@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 import { FileStore } from './fileStore.ts'
 import path from 'node:path'
 
-type EnvironmentKeys = "DISCORD_BOT_TOKEN" | "DATA_DIR" | "HOME" | "TELEGRAM_BOT_TOKEN"
+type EnvironmentKeys = "DISCORD_BOT_TOKEN" | "DATA_DIR" | "HOME"
 
 export class SecretStore {
     public static init() {
