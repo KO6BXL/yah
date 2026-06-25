@@ -64,12 +64,12 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 8. Implement Write Rules
 
-- [ ] Allow agents to write thread working memory.
-- [ ] Allow agents to write channel working memory.
-- [ ] Mark agent-created durable channel memory clearly.
-- [ ] Require proposals for category memory writes.
-- [ ] Require proposals for task and procedural memory changes.
-- [ ] Prevent agents from silently overwriting active durable facts.
+- [x] Allow agents to write thread working memory.
+- [x] Allow agents to write channel working memory.
+- [x] Mark agent-created durable channel memory clearly.
+- [x] Require proposals for category memory writes.
+- [x] Require proposals for task and procedural memory changes.
+- [x] Prevent agents from silently overwriting active durable facts.
 
 ## 9. Wire Memory Into Agent Turns
 

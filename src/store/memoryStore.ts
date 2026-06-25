@@ -40,12 +40,12 @@ export type MemoryAuditEvent = {
 export class MemoryStore {
     public static async create(input: MemoryRecordInput, actor?: string) {
         const now = new Date().toISOString();
-        const record = assertMemoryRecord({
+        const record = MemoryStore.applyWriteRules(assertMemoryRecord({
             ...input,
             id: input.id ?? randomUUID(),
             createdAt: input.createdAt ?? now,
             updatedAt: input.updatedAt ?? now,
-        } as MemoryRecord);
+        } as MemoryRecord));
         await MemoryStore.writeRecord(record, "create", actor);
         return record;
     }
@@ -55,7 +55,7 @@ export class MemoryStore {
         if (!existing) {
             throw new Error(`Memory record ${id} was not found.`);
         }
-        const record = assertMemoryRecord({
+        const record = MemoryStore.applyWriteRules(assertMemoryRecord({
             ...existing,
             ...update,
             id: existing.id,
@@ -63,7 +63,7 @@ export class MemoryStore {
             nodeId: existing.nodeId,
             createdAt: existing.createdAt,
             updatedAt: new Date().toISOString(),
-        } as MemoryRecord);
+        } as MemoryRecord), existing);
         await MemoryStore.writeRecord(record, "update", actor);
         return record;
     }
@@ -140,6 +140,62 @@ export class MemoryStore {
             throw new Error(`Memory record ${id} was not found.`);
         }
         return record;
+    }
+
+    private static applyWriteRules(record: MemoryRecord, existing?: MemoryRecord) {
+        if (MemoryStore.isAgentCreated(record)) {
+            if (record.scope === "category" && record.status !== "proposed") {
+                throw new Error("Agent-created category memory must be proposed for user approval.");
+            }
+
+            if (MemoryStore.requiresUserOwnedProposal(record) && record.status !== "proposed") {
+                throw new Error("Agent-created task and procedural memory changes must be proposed for user approval.");
+            }
+
+            if (MemoryStore.isDurableChannelMemory(record) && !record.userApproved) {
+                record = {
+                    ...record,
+                    agentWritable: false,
+                    tags: MemoryStore.withTag(record.tags, "agent-created"),
+                } as MemoryRecord;
+            }
+        }
+
+        if (existing && MemoryStore.isAgentCreated(record) && MemoryStore.isSilentDurableOverwrite(existing, record)) {
+            throw new Error("Active durable memory cannot be silently overwritten. Supersede it or create a proposal.");
+        }
+
+        return assertMemoryRecord(record);
+    }
+
+    private static isAgentCreated(record: MemoryRecord) {
+        return record.source.createdBy === "agent" || record.source.createdBy === "janitor";
+    }
+
+    private static requiresUserOwnedProposal(record: MemoryRecord) {
+        return record.kind === "task" || record.kind === "procedural";
+    }
+
+    private static isDurableChannelMemory(record: MemoryRecord) {
+        return record.scope === "channel" && record.kind !== "working";
+    }
+
+    private static isDurableMemory(record: MemoryRecord) {
+        return record.kind !== "working";
+    }
+
+    private static isSilentDurableOverwrite(existing: MemoryRecord, next: MemoryRecord) {
+        if (!MemoryStore.isDurableMemory(existing) || existing.status !== "active") {
+            return false;
+        }
+        if (next.status === "proposed" || next.status === "superseded" || next.status === "archived" || next.status === "deleted") {
+            return false;
+        }
+        return existing.content !== next.content;
+    }
+
+    private static withTag(tags: string[], tag: string) {
+        return tags.includes(tag) ? tags : [...tags, tag];
     }
 
     private static async writeRecord(record: MemoryRecord, action: MemoryAuditAction, actor?: string, note?: string) {
