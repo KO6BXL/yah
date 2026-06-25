@@ -73,11 +73,11 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 9. Wire Memory Into Agent Turns
 
-- [ ] Load pinned category and channel memory before creating a backend session.
-- [ ] Inject relevant working memory into thread context.
-- [ ] Include source-aware summaries instead of raw history dumps.
-- [ ] Prefer nearer scopes over broader scopes when assembling context.
-- [ ] Add conflict handling rules before automatic memory merging.
+- [x] Load pinned category and channel memory before creating a backend session.
+- [x] Inject relevant working memory into thread context.
+- [x] Include source-aware summaries instead of raw history dumps.
+- [x] Prefer nearer scopes over broader scopes when assembling context.
+- [x] Add conflict handling rules before automatic memory merging.
 
 ## 10. Add Thread Completion Flow
 
