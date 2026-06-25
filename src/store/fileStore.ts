@@ -1,18 +1,18 @@
 import { SecretStore } from "./secretStore.ts";
 import path from "node:path"
-import { mkdir, open, readFile, stat} from "node:fs/promises"
+import { mkdir, readFile, stat, writeFile} from "node:fs/promises"
 
 
 
 export class FileStore {
     public static GetDataDir() {
         let dataDir = ""
-        const canidate1 = SecretStore.get("DATA_DIR")
-        const canidate2 = SecretStore.get("HOME")
-        if (canidate1) {
-            dataDir = canidate1
-        } else if (canidate2) {
-            dataDir = path.join(canidate2, ".local/share/yah/")
+        const candidate1 = SecretStore.get("DATA_DIR")
+        const candidate2 = SecretStore.get("HOME")
+        if (candidate1) {
+            dataDir = candidate1
+        } else if (candidate2) {
+            dataDir = path.join(candidate2, ".local/share/yah/")
         } else {
             throw new Error("Cannot determine a safe place to put yah files")
         }
@@ -21,32 +21,18 @@ export class FileStore {
     }
 
     public static async Read(relativeFilepath: string) {
-        try {
-            const fullPath = path.join(FileStore.GetDataDir(), relativeFilepath)
-            const fd = await open(fullPath)
-            const contents = await readFile(fd)
-            return contents
-        } catch(e) {
-            throw e
-        }
+        return readFile(await FileStore.GetFullPath(relativeFilepath))
     }
 
     public static async Write(relativeFilepath: string, buffer: string | Uint8Array) {
-        try {
-            const fullPath = path.join(FileStore.GetDataDir(), relativeFilepath)
-            const fd = await open(fullPath)
-            if (typeof buffer === "string") {
-                buffer = Buffer.from(buffer)
-            }
-            await fd.write(buffer)
-        } catch(e) {
-            throw e
-        }
+        const fullPath = await FileStore.GetFullPath(relativeFilepath)
+        await mkdir(path.dirname(fullPath), {recursive: true})
+        await writeFile(fullPath, buffer)
     }
 
     public static async Exists(relativeFilepath: string) {
         try {
-            const fullPath = path.join(FileStore.GetDataDir(), relativeFilepath)
+            const fullPath = await FileStore.GetFullPath(relativeFilepath)
             const stats = await stat(fullPath)
             return stats.isFile() || stats.isDirectory() || stats.isSymbolicLink()
         } catch(e) {
@@ -55,6 +41,11 @@ export class FileStore {
     }
 
     public static async GetFullPath(relativeFilepath: string) {
-        return path.join(FileStore.GetDataDir(), relativeFilepath)
+        const dataDir = path.resolve(FileStore.GetDataDir())
+        const fullPath = path.resolve(dataDir, relativeFilepath)
+        if (fullPath !== dataDir && !fullPath.startsWith(`${dataDir}${path.sep}`)) {
+            throw new Error("FileStore paths must stay inside the YAH data directory")
+        }
+        return fullPath
     }
 }

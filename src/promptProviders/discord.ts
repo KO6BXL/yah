@@ -21,6 +21,67 @@ import { ContextStore } from "../store/contextStore.ts";
 import { SecretStore } from "../store/secretStore.ts";
 import { type PromptProvider } from "./prompt-provider.ts";
 
+const discordMessageLimit = 2000
+
+type DiscordContextChannel = {
+    id: string
+    name?: string
+    guild: {id: string}
+    parentId: string
+    parent?: {id: string, name: string} | null
+    isTextBased(): boolean
+    isThread(): boolean
+}
+
+export function splitDiscordMessage(message: string, limit = discordMessageLimit) {
+    if (limit < 1) {
+        throw new Error("Discord message chunk limit must be positive.")
+    }
+    if (!message) {
+        return []
+    }
+
+    const chunks: string[] = []
+    let remaining = message
+    while (remaining.length > limit) {
+        const prefix = remaining.slice(0, limit)
+        let splitAt = prefix.lastIndexOf("\n")
+        if (splitAt <= 0) {
+            splitAt = prefix.lastIndexOf(" ")
+        }
+        if (splitAt <= 0) {
+            splitAt = limit
+        } else {
+            splitAt += 1
+        }
+
+        chunks.push(remaining.slice(0, splitAt))
+        remaining = remaining.slice(splitAt)
+    }
+    if (remaining) {
+        chunks.push(remaining)
+    }
+    return chunks
+}
+
+function isDiscordContextChannel(channel: unknown): channel is DiscordContextChannel {
+    if (!channel || typeof channel !== "object") {
+        return false
+    }
+    const candidate = channel as Partial<DiscordContextChannel>
+    const guild = candidate.guild as {id?: unknown} | undefined
+    return typeof candidate.id === "string"
+        && typeof candidate.parentId === "string"
+        && candidate.parentId.length > 0
+        && typeof guild?.id === "string"
+        && typeof candidate.isTextBased === "function"
+        && typeof candidate.isThread === "function"
+}
+
+function discordChannelName(channel: DiscordContextChannel) {
+    return typeof channel.name === "string" && channel.name.length > 0 ? channel.name : channel.id
+}
+
 export class Discord implements PromptProvider {
     client: Client
     callbacks: ((prompt: string, user: string) => void | Promise<void>)[] = [() => {}]
@@ -68,7 +129,9 @@ export class Discord implements PromptProvider {
     public async post(message: string, user: string) {
         const chan = await this.client.channels.fetch(user)
         if (chan?.isSendable()) {
-            await chan.send(message)
+            for (const chunk of splitDiscordMessage(message)) {
+                await chan.send(chunk)
+            }
         }
     }
 
@@ -119,7 +182,7 @@ export class Discord implements PromptProvider {
         if (!channel) {
             throw new Error(`Configured Discord channel ${this.mainChannel} was not found.`)
         }
-        if (!("guild" in channel) || !("parentId" in channel) || !channel.parentId) {
+        if (!isDiscordContextChannel(channel)) {
             throw new Error("Configured Discord channel must be a guild channel inside a category.")
         }
         if (!channel.isTextBased() || channel.isThread()) {
@@ -131,12 +194,12 @@ export class Discord implements PromptProvider {
             throw new Error("Configured Discord channel category could not be resolved.")
         }
 
-        const context = await this.registerChannel(channel.id, "name" in channel ? channel.name : channel.id, channel.guild.id, parent.id, parent.name)
+        const context = await this.registerChannel(channel.id, discordChannelName(channel), channel.guild.id, parent.id, parent.name)
         this.rootCategoryId = context.categoryId
     }
 
     private async resolveChannelContext(message: Message) {
-        if (!("guild" in message.channel) || !("parentId" in message.channel) || !message.channel.parentId) {
+        if (!isDiscordContextChannel(message.channel)) {
             return undefined
         }
         if (!this.rootCategoryId || message.channel.parentId !== this.rootCategoryId) {
@@ -144,7 +207,7 @@ export class Discord implements PromptProvider {
         }
         return this.registerChannel(
             message.channel.id,
-            "name" in message.channel ? message.channel.name : message.channel.id,
+            discordChannelName(message.channel),
             message.channel.guild.id,
             message.channel.parentId,
             message.channel.parent?.name ?? message.channel.parentId,
@@ -156,7 +219,7 @@ export class Discord implements PromptProvider {
             return undefined
         }
         const parent = message.channel.parent
-        if (!parent || !("guild" in parent) || !("parentId" in parent) || !parent.parentId) {
+        if (!isDiscordContextChannel(parent)) {
             return undefined
         }
         if (!this.rootCategoryId || parent.parentId !== this.rootCategoryId) {
@@ -164,7 +227,7 @@ export class Discord implements PromptProvider {
         }
         const parentContext = await this.registerChannel(
             parent.id,
-            "name" in parent ? parent.name : parent.id,
+            discordChannelName(parent),
             parent.guild.id,
             parent.parentId,
             parent.parent?.name ?? parent.parentId,
