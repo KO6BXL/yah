@@ -20,12 +20,12 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 3. Introduce a Context Store
 
-- [ ] Replace ad hoc config/session files with a small storage layer for context nodes.
-- [ ] Store category metadata keyed by Discord category ID.
-- [ ] Store channel metadata keyed by Discord channel ID.
-- [ ] Store thread metadata keyed by Discord thread ID.
-- [ ] Persist parent-child relationships: category -> channel -> thread.
-- [ ] Add simple read/write/list APIs before adding search or embeddings.
+- [x] Replace ad hoc config/session files with a small storage layer for context nodes.
+- [x] Store category metadata keyed by Discord category ID.
+- [x] Store channel metadata keyed by Discord channel ID.
+- [x] Store thread metadata keyed by Discord thread ID.
+- [x] Persist parent-child relationships: category -> channel -> thread.
+- [x] Add simple read/write/list APIs before adding search or embeddings.
 
 ## 4. Align Discord With the Context Tree
 

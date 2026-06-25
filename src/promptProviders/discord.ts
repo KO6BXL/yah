@@ -50,7 +50,7 @@ export class Discord implements PromptProvider {
 
     public async post(message: string, user: string) {
         const chan = await this.client.channels.fetch(user)
-        if (chan?.isTextBased()) {
+        if (chan?.isSendable()) {
             await chan.send(message)
         }
     }
