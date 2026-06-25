@@ -81,11 +81,11 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 10. Add Thread Completion Flow
 
-- [ ] Add a Discord command or lightweight action to mark a thread complete.
-- [ ] Summarize completed thread activity.
-- [ ] Propose useful channel/category memory promotions.
-- [ ] Archive stale thread working context when appropriate.
-- [ ] Keep raw thread logs as evidence, not prompt material.
+- [x] Add a Discord command or lightweight action to mark a thread complete.
+- [x] Summarize completed thread activity.
+- [x] Propose useful channel/category memory promotions.
+- [x] Archive stale thread working context when appropriate.
+- [x] Keep raw thread logs as evidence, not prompt material.
 
 ## 11. Add the Janitor Process
 

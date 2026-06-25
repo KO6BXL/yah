@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { splitDiscordMessage } from "./discord.ts";
+import { isThreadCompleteCommand, splitDiscordMessage } from "./discord.ts";
 
 describe("splitDiscordMessage", () => {
     test("returns no chunks for empty messages", () => {
@@ -19,5 +19,14 @@ describe("splitDiscordMessage", () => {
 
         expect(chunks).toEqual(["hello world ", "again"])
         expect(chunks.join("")).toBe("hello world again")
+    })
+})
+
+describe("isThreadCompleteCommand", () => {
+    test("recognizes lightweight thread completion actions", () => {
+        expect(isThreadCompleteCommand("!yah complete")).toBe(true)
+        expect(isThreadCompleteCommand("!complete")).toBe(true)
+        expect(isThreadCompleteCommand("/complete")).toBe(true)
+        expect(isThreadCompleteCommand("complete the task")).toBe(false)
     })
 })

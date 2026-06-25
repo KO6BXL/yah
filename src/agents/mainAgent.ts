@@ -7,6 +7,8 @@ import { FileStore } from "../store/fileStore.ts";
 import path from "node:path";
 import { type KnownProvider } from "@earendil-works/pi-ai";
 import { ContextAssembly } from "../context/assembly.ts";
+import { toDiscordThreadId } from "../domain/context.ts";
+import { ThreadLogStore } from "../store/threadLogStore.ts";
 
 type ThreadState = {
     backend: UniqueBackend
@@ -76,6 +78,11 @@ export class MainAgent {
             if(!thread.outputBuf) {
                 return
             }
+            await ThreadLogStore.append({
+                threadId: toDiscordThreadId(threadId),
+                role: "assistant",
+                content: thread.outputBuf,
+            })
             await agent.pProv.post(thread.outputBuf, threadId)
             thread.outputBuf = ""
         }

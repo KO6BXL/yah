@@ -3,6 +3,7 @@ import {
     GatewayIntentBits,
     type Message,
 } from "discord.js";
+import { ThreadCompletion } from "../context/threadCompletion.ts";
 import {
     toDiscordCategoryId,
     toDiscordChannelId,
@@ -19,6 +20,7 @@ import {
 } from "../domain/context.ts";
 import { ContextStore } from "../store/contextStore.ts";
 import { SecretStore } from "../store/secretStore.ts";
+import { ThreadLogStore } from "../store/threadLogStore.ts";
 import { type PromptProvider } from "./prompt-provider.ts";
 
 const discordMessageLimit = 2000
@@ -80,6 +82,10 @@ function isDiscordContextChannel(channel: unknown): channel is DiscordContextCha
 
 function discordChannelName(channel: DiscordContextChannel) {
     return typeof channel.name === "string" && channel.name.length > 0 ? channel.name : channel.id
+}
+
+export function isThreadCompleteCommand(content: string) {
+    return /^(?:!yah\s+complete|!complete|\/complete)\s*$/i.test(content.trim())
 }
 
 export class Discord implements PromptProvider {
@@ -145,6 +151,17 @@ export class Discord implements PromptProvider {
             if (!context) {
                 return
             }
+            if (isThreadCompleteCommand(message.content)) {
+                const result = await ThreadCompletion.completeThread(message.channelId, message.author.id, message.id)
+                await this.post(ThreadCompletion.renderResult(result), message.channelId)
+                return
+            }
+            await ThreadLogStore.append({
+                threadId: toDiscordThreadId(message.channelId),
+                role: "user",
+                content: message.content.trim(),
+                discordMessageId: toDiscordMessageId(message.id),
+            })
             this.callbacks.forEach((f) => {
                 Promise.resolve(f(message.content.trim(), message.channelId)).catch(console.error)
             })
@@ -167,6 +184,12 @@ export class Discord implements PromptProvider {
             reason: "YAH task thread",
         })
         await this.registerThread(thread.id, thread.name, message.author.id, message.id, parentContext)
+        await ThreadLogStore.append({
+            threadId: toDiscordThreadId(thread.id),
+            role: "user",
+            content: prompt,
+            discordMessageId: toDiscordMessageId(message.id),
+        })
         this.callbacks.forEach((f) => {
             Promise.resolve(f(prompt, thread.id)).catch(console.error)
         })
