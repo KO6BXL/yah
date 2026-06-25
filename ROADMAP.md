@@ -29,11 +29,11 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 4. Align Discord With the Context Tree
 
-- [ ] On startup, validate the configured Discord channel/category setup.
-- [ ] When mentioned in a configured channel, create or register a task thread.
-- [ ] When a message arrives in a task thread, resolve its parent channel and category context.
-- [ ] Stop treating the configured channel as the whole app root.
-- [ ] Prepare for multiple channels under one YAH category.
+- [x] On startup, validate the configured Discord channel/category setup.
+- [x] When mentioned in a configured channel, create or register a task thread.
+- [x] When a message arrives in a task thread, resolve its parent channel and category context.
+- [x] Stop treating the configured channel as the whole app root.
+- [x] Prepare for multiple channels under one YAH category.
 
 ## 5. Build Context Assembly
 
