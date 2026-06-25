@@ -47,12 +47,12 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 6. Create Structured Memory Records
 
-- [ ] Implement the `MemoryRecord` shape from `PLAN-FOR-MEMORY.md`.
-- [ ] Support scopes: `category`, `channel`, `thread`.
-- [ ] Support kinds: `task`, `working`, `semantic`, `episodic`, `procedural`, `artifact`.
-- [ ] Support statuses: `active`, `proposed`, `superseded`, `archived`, `deleted`.
-- [ ] Store source metadata for Discord messages and tool calls.
-- [ ] Store timestamps, approval fields, confidence, visibility, and supersession links.
+- [x] Implement the `MemoryRecord` shape from `PLAN-FOR-MEMORY.md`.
+- [x] Support scopes: `category`, `channel`, `thread`.
+- [x] Support kinds: `task`, `working`, `semantic`, `episodic`, `procedural`, `artifact`.
+- [x] Support statuses: `active`, `proposed`, `superseded`, `archived`, `deleted`.
+- [x] Store source metadata for Discord messages and tool calls.
+- [x] Store timestamps, approval fields, confidence, visibility, and supersession links.
 
 ## 7. Add Basic Memory Storage
 
