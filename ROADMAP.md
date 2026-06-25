@@ -37,13 +37,13 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 5. Build Context Assembly
 
-- [ ] Create one module that assembles agent context for a thread.
-- [ ] Include base system instructions.
-- [ ] Include category task/procedural context.
-- [ ] Include channel task/working context.
-- [ ] Include thread-local live context.
-- [ ] Keep durable memory retrieval stubbed until the memory store exists.
-- [ ] Make context assembly inspectable for debugging.
+- [x] Create one module that assembles agent context for a thread.
+- [x] Include base system instructions.
+- [x] Include category task/procedural context.
+- [x] Include channel task/working context.
+- [x] Include thread-local live context.
+- [x] Keep durable memory retrieval stubbed until the memory store exists.
+- [x] Make context assembly inspectable for debugging.
 
 ## 6. Create Structured Memory Records
 

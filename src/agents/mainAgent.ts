@@ -6,6 +6,7 @@ import { loadConfig } from "../store/config.ts";
 import { FileStore } from "../store/fileStore.ts";
 import path from "node:path";
 import { type KnownProvider } from "@earendil-works/pi-ai";
+import { ContextAssembly } from "../context/assembly.ts";
 
 type ThreadState = {
     backend: UniqueBackend
@@ -86,7 +87,8 @@ export class MainAgent {
             return existing
         }
 
-        const backend = await UniqueBackend.create(this.agentProvider, this.model, threadId, this.systemPrompt)
+        const context = await ContextAssembly.assembleForThread(threadId, this.systemPrompt)
+        const backend = await UniqueBackend.create(this.agentProvider, this.model, threadId, context.systemPrompt)
         const thread: ThreadState = {backend, outputBuf: ""}
         this.threads.set(threadId, thread)
         backend.subscribe((event) => {
