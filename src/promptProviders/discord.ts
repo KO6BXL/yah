@@ -1,6 +1,9 @@
 import {
     Client,
     GatewayIntentBits,
+    type ChatInputCommandInteraction,
+    type Guild,
+    type Interaction,
     type Message,
 } from "discord.js";
 import { ThreadCompletion } from "../context/threadCompletion.ts";
@@ -24,11 +27,12 @@ import { ThreadLogStore } from "../store/threadLogStore.ts";
 import { type PromptProvider } from "./prompt-provider.ts";
 
 const discordMessageLimit = 2000
+const completeCommandName = "complete"
 
 type DiscordContextChannel = {
     id: string
     name?: string
-    guild: {id: string}
+    guild: Guild
     parentId: string
     parent?: {id: string, name: string} | null
     isTextBased(): boolean
@@ -84,10 +88,6 @@ function discordChannelName(channel: DiscordContextChannel) {
     return typeof channel.name === "string" && channel.name.length > 0 ? channel.name : channel.id
 }
 
-export function isThreadCompleteCommand(content: string) {
-    return /^(?:!yah\s+complete|!complete|\/complete)\s*$/i.test(content.trim())
-}
-
 export class Discord implements PromptProvider {
     client: Client
     callbacks: ((prompt: string, user: string) => void | Promise<void>)[] = [() => {}]
@@ -97,6 +97,9 @@ export class Discord implements PromptProvider {
     private constructor(client: Client, mainChannel: string, token: string) {
         client.on("messageCreate", (message) => {
             void this.handleMessage(message).catch(console.error)
+        })
+        client.on("interactionCreate", (interaction) => {
+            void this.handleInteraction(interaction).catch(console.error)
         })
         this.token = token
         this.client = client
@@ -121,6 +124,7 @@ export class Discord implements PromptProvider {
                     })
                 }
                 await this.validateConfiguredChannel()
+                await this.registerApplicationCommands()
                 return token
             })
         } catch(e) {
@@ -149,11 +153,6 @@ export class Discord implements PromptProvider {
         if (message.channel.isThread()) {
             const context = await this.resolveThreadContext(message)
             if (!context) {
-                return
-            }
-            if (isThreadCompleteCommand(message.content)) {
-                const result = await ThreadCompletion.completeThread(message.channelId, message.author.id, message.id)
-                await this.post(ThreadCompletion.renderResult(result), message.channelId)
                 return
             }
             await ThreadLogStore.append({
@@ -195,6 +194,36 @@ export class Discord implements PromptProvider {
         })
     }
 
+    private async handleInteraction(interaction: Interaction) {
+        if (!interaction.isChatInputCommand() || interaction.commandName !== completeCommandName) {
+            return
+        }
+        await this.handleCompleteCommand(interaction)
+    }
+
+    private async handleCompleteCommand(interaction: ChatInputCommandInteraction) {
+        const context = await this.resolveThreadContextFromChannel(interaction.channel, interaction.user.id)
+        if (!context) {
+            await interaction.reply({
+                content: "Use /complete inside a registered YAH task thread.",
+                ephemeral: true,
+            })
+            return
+        }
+
+        const result = await ThreadCompletion.completeThread(context.thread.id, interaction.user.id)
+        const chunks = splitDiscordMessage(ThreadCompletion.renderResult(result))
+        if (chunks.length === 0) {
+            await interaction.reply("Thread marked complete.")
+            return
+        }
+
+        await interaction.reply(chunks[0])
+        for (const chunk of chunks.slice(1)) {
+            await interaction.followUp(chunk)
+        }
+    }
+
     private threadNameFor(prompt: string) {
         const title = prompt.replace(/\s+/g, " ").trim().slice(0, 80)
         return title || `task-${Date.now()}`
@@ -221,6 +250,24 @@ export class Discord implements PromptProvider {
         this.rootCategoryId = context.categoryId
     }
 
+    private async registerApplicationCommands() {
+        const channel = await this.client.channels.fetch(this.mainChannel)
+        if (!isDiscordContextChannel(channel)) {
+            return
+        }
+        const commands = await channel.guild.commands.fetch()
+        const existing = commands.find((command) => command.name === completeCommandName)
+        const command = {
+            name: completeCommandName,
+            description: "Mark the current YAH task thread complete and run memory cleanup.",
+        }
+        if (existing) {
+            await existing.edit(command)
+        } else {
+            await channel.guild.commands.create(command)
+        }
+    }
+
     private async resolveChannelContext(message: Message) {
         if (!isDiscordContextChannel(message.channel)) {
             return undefined
@@ -238,10 +285,14 @@ export class Discord implements PromptProvider {
     }
 
     private async resolveThreadContext(message: Message) {
-        if (!message.channel.isThread() || !message.channel.parentId) {
+        return this.resolveThreadContextFromChannel(message.channel, message.author.id)
+    }
+
+    private async resolveThreadContextFromChannel(channel: unknown, userId: string) {
+        if (!isDiscordContextChannel(channel) || !channel.isThread() || !channel.parentId) {
             return undefined
         }
-        const parent = message.channel.parent
+        const parent = channel.parent
         if (!isDiscordContextChannel(parent)) {
             return undefined
         }
@@ -255,7 +306,8 @@ export class Discord implements PromptProvider {
             parent.parentId,
             parent.parent?.name ?? parent.parentId,
         )
-        return this.registerThread(message.channel.id, message.channel.name, message.author.id, undefined, parentContext)
+        const thread = await this.registerThread(channel.id, discordChannelName(channel), userId, undefined, parentContext)
+        return {...parentContext, thread}
     }
 
     private async registerChannel(channelIdRaw: string, channelName: string, guildIdRaw: string, categoryIdRaw: string, categoryName: string) {

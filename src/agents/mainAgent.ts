@@ -7,6 +7,7 @@ import { FileStore } from "../store/fileStore.ts";
 import path from "node:path";
 import { type KnownProvider } from "@earendil-works/pi-ai";
 import { ContextAssembly } from "../context/assembly.ts";
+import { Janitor } from "../context/janitor.ts";
 import { toDiscordThreadId } from "../domain/context.ts";
 import { ThreadLogStore } from "../store/threadLogStore.ts";
 
@@ -21,12 +22,15 @@ export class MainAgent {
     pProv: PromptProvider
     systemPrompt: string
     private threads = new Map<string, ThreadState>()
+    private janitorTimer?: ReturnType<typeof setInterval>
+    private janitorIntervalMs: number
 
-    constructor(agentProvider: KnownProvider, model: string, systemPrompt: string, pProv: PromptProvider) {
+    constructor(agentProvider: KnownProvider, model: string, systemPrompt: string, pProv: PromptProvider, janitorIntervalMs = Janitor.defaultIntervalMs) {
         this.agentProvider = agentProvider
         this.model = model
         this.pProv = pProv
         this.systemPrompt = systemPrompt
+        this.janitorIntervalMs = janitorIntervalMs
         pProv.subscribe((prompt, user) => MainAgent.handlePrompt(this, prompt, user))
     }
 
@@ -46,14 +50,18 @@ export class MainAgent {
             }
         })()
 
-        return new MainAgent(conf.agentProvider, conf.model, systemPrompt, pProv)
+        return new MainAgent(conf.agentProvider, conf.model, systemPrompt, pProv, conf.janitorIntervalMs)
     }  
 
     public start() {
+        this.startJanitorScheduler()
         return this.pProv.start()
     }
 
     public dispose() {
+        if (this.janitorTimer) {
+            clearInterval(this.janitorTimer)
+        }
         this.threads.forEach((thread) => thread.backend.dispose())
     }
 
@@ -102,5 +110,24 @@ export class MainAgent {
             void MainAgent.handleAgentEvent(this, threadId, event).catch(console.error)
         })
         return thread
+    }
+
+    private startJanitorScheduler() {
+        if (this.janitorTimer) {
+            return
+        }
+        this.janitorTimer = setInterval(() => {
+            void this.runJanitor().catch(console.error)
+        }, this.janitorIntervalMs)
+        this.janitorTimer.unref?.()
+    }
+
+    private async runJanitor() {
+        const results = await Janitor.runAllChannels({intervalMs: this.janitorIntervalMs})
+        for (const result of results) {
+            if (!result.skipped) {
+                await this.pProv.post(Janitor.renderDigest(result), result.channel.id)
+            }
+        }
     }
 }

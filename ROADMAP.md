@@ -89,13 +89,13 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 11. Add the Janitor Process
 
-- [ ] Add a scheduled per-channel janitor runner.
-- [ ] Skip channels with no relevant activity since the last interval.
-- [ ] Archive stale working memory.
-- [ ] Summarize completed threads.
-- [ ] Extract candidate semantic, episodic, procedural, and artifact memory.
-- [ ] Merge duplicates only when source and scope rules allow it.
-- [ ] Produce a digest for the user.
+- [x] Add a scheduled per-channel janitor runner.
+- [x] Skip channels with no relevant activity since the last interval.
+- [x] Archive stale working memory.
+- [x] Summarize completed threads.
+- [x] Extract candidate semantic, episodic, procedural, and artifact memory.
+- [x] Merge duplicates only when source and scope rules allow it.
+- [x] Produce a digest for the user.
 
 ## 12. Build the Dashboard Foundation
 
