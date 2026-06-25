@@ -12,11 +12,11 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 2. Define Core Domain Types
 
-- [ ] Add shared types for `Category`, `Channel`, and `Thread`.
-- [ ] Add stable IDs for Discord guilds, categories, channels, threads, and messages.
-- [ ] Add types for node task memory, working memory, and future durable memory records.
-- [ ] Add ownership and permission fields needed for category-level approval.
-- [ ] Keep these types independent from Discord SDK classes.
+- [x] Add shared types for `Category`, `Channel`, and `Thread`.
+- [x] Add stable IDs for Discord guilds, categories, channels, threads, and messages.
+- [x] Add types for node task memory, working memory, and future durable memory records.
+- [x] Add ownership and permission fields needed for category-level approval.
+- [x] Keep these types independent from Discord SDK classes.
 
 ## 3. Introduce a Context Store
 
