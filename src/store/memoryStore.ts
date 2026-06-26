@@ -3,11 +3,16 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
     assertMemoryRecord,
+    type CategoryId,
+    type ChannelId,
+    type ContextNode,
     type MemoryKind,
     type MemoryRecord,
     type MemoryScope,
     type MemoryStatus,
+    type ThreadId,
 } from "../domain/context.ts";
+import { ContextStore } from "./contextStore.ts";
 import { FileStore } from "./fileStore.ts";
 
 export type MemoryRecordInput = Omit<MemoryRecord, "id" | "createdAt" | "updatedAt"> & {
@@ -26,7 +31,7 @@ export type MemoryListFilter = {
     text?: string
 }
 
-export type MemoryAuditAction = "create" | "update" | "archive" | "restore" | "move" | "supersede" | "mark-deleted"
+export type MemoryAuditAction = "create" | "update" | "archive" | "restore" | "move" | "supersede" | "mark-deleted" | "approve" | "reject"
 
 export type MemoryAuditEvent = {
     id: string
@@ -35,6 +40,11 @@ export type MemoryAuditEvent = {
     actor?: string
     note?: string
     createdAt: string
+}
+
+export type MemoryApprovalActor = {
+    userId: string
+    roleIds?: string[]
 }
 
 export class MemoryStore {
@@ -99,6 +109,67 @@ export class MemoryStore {
             updatedAt: new Date().toISOString(),
         } as MemoryRecord), existing);
         await MemoryStore.writeRecord(record, "move", actor, `Moved from ${existing.scope}:${existing.nodeId} to ${scope}:${nodeId}`);
+        return record;
+    }
+
+    public static async approve(id: string, actor: MemoryApprovalActor, update: MemoryRecordUpdate = {}) {
+        const existing = await MemoryStore.readRequired(id);
+        if (existing.status !== "proposed") {
+            throw new Error("Only proposed memory can be approved.");
+        }
+        await MemoryStore.assertCanApprove(existing, actor);
+
+        const approvedAt = new Date().toISOString();
+        const record = MemoryStore.applyWriteRules(assertMemoryRecord({
+            ...existing,
+            ...update,
+            id: existing.id,
+            scope: existing.scope,
+            nodeId: existing.nodeId,
+            status: "active",
+            userApproved: true,
+            approvedByUserId: actor.userId,
+            approvedAt,
+            createdAt: existing.createdAt,
+            updatedAt: approvedAt,
+        } as MemoryRecord), existing);
+        await MemoryStore.writeRecord(record, "approve", actor.userId);
+        return record;
+    }
+
+    public static async reject(id: string, actor: MemoryApprovalActor) {
+        const existing = await MemoryStore.readRequired(id);
+        if (existing.status !== "proposed") {
+            throw new Error("Only proposed memory can be rejected.");
+        }
+        await MemoryStore.assertCanApprove(existing, actor);
+
+        const record = assertMemoryRecord({
+            ...existing,
+            status: "archived",
+            updatedAt: new Date().toISOString(),
+        } as MemoryRecord);
+        await MemoryStore.writeRecord(record, "reject", actor.userId);
+        return record;
+    }
+
+    public static async moveProposalToLowerScope(id: string, scope: MemoryScope, nodeId: string, actor: MemoryApprovalActor) {
+        const existing = await MemoryStore.readRequired(id);
+        if (existing.status !== "proposed") {
+            throw new Error("Only proposed memory can be moved during approval.");
+        }
+        if (!MemoryStore.isLowerScope(existing.scope, scope)) {
+            throw new Error("Approval proposals can only be moved to a lower scope.");
+        }
+        await MemoryStore.assertCanApprove(existing, actor);
+
+        const record = MemoryStore.applyWriteRules(assertMemoryRecord({
+            ...existing,
+            scope,
+            nodeId,
+            updatedAt: new Date().toISOString(),
+        } as MemoryRecord), existing);
+        await MemoryStore.writeRecord(record, "move", actor.userId, `Moved proposal from ${existing.scope}:${existing.nodeId} to ${scope}:${nodeId}`);
         return record;
     }
 
@@ -183,11 +254,11 @@ export class MemoryStore {
 
     private static applyWriteRules(record: MemoryRecord, existing?: MemoryRecord) {
         if (MemoryStore.isAgentCreated(record)) {
-            if (record.scope === "category" && record.status !== "proposed") {
+            if (record.scope === "category" && record.status !== "proposed" && !record.userApproved) {
                 throw new Error("Agent-created category memory must be proposed for user approval.");
             }
 
-            if (MemoryStore.requiresUserOwnedProposal(record) && record.status !== "proposed") {
+            if (MemoryStore.requiresUserOwnedProposal(record) && record.status !== "proposed" && !record.userApproved) {
                 throw new Error("Agent-created task and procedural memory changes must be proposed for user approval.");
             }
 
@@ -231,6 +302,81 @@ export class MemoryStore {
             return false;
         }
         return existing.content !== next.content;
+    }
+
+    private static isLowerScope(from: MemoryScope, to: MemoryScope) {
+        const ranks: Record<MemoryScope, number> = {
+            category: 0,
+            channel: 1,
+            thread: 2,
+        }
+        return ranks[to] > ranks[from]
+    }
+
+    private static async assertCanApprove(record: MemoryRecord, actor: MemoryApprovalActor) {
+        const node = await MemoryStore.approvalNode(record);
+        const permissions = node.permissions;
+        const roleIds = actor.roleIds ?? [];
+        if (permissions.ownerUserIds.includes(actor.userId)) {
+            return;
+        }
+        if (roleIds.some((roleId) => permissions.approvedRoleIds.includes(roleId))) {
+            return;
+        }
+        throw new Error(`User ${actor.userId} is not allowed to approve ${record.scope} memory.`);
+    }
+
+    private static async approvalNode(record: MemoryRecord): Promise<ContextNode> {
+        const node = await MemoryStore.contextNode(record.scope, record.nodeId);
+        if (node.permissions.approvalPolicy === "owner") {
+            return node;
+        }
+        if (node.permissions.approvalPolicy === "category-owner") {
+            if (node.kind === "category") {
+                return node;
+            }
+            const category = await ContextStore.readCategory(node.parentCategoryId);
+            if (!category) {
+                throw new Error(`Category ${node.parentCategoryId} was not found for approval.`);
+            }
+            return category;
+        }
+        if (node.permissions.approvalPolicy === "channel-owner") {
+            if (node.kind === "channel") {
+                return node;
+            }
+            if (node.kind === "thread") {
+                const channel = await ContextStore.readChannel(node.parentChannelId);
+                if (!channel) {
+                    throw new Error(`Channel ${node.parentChannelId} was not found for approval.`);
+                }
+                return channel;
+            }
+            return node;
+        }
+        return node;
+    }
+
+    private static async contextNode(scope: MemoryScope, nodeId: string): Promise<ContextNode> {
+        if (scope === "category") {
+            const node = await ContextStore.readCategory(nodeId as CategoryId);
+            if (node) {
+                return node;
+            }
+        }
+        if (scope === "channel") {
+            const node = await ContextStore.readChannel(nodeId as ChannelId);
+            if (node) {
+                return node;
+            }
+        }
+        if (scope === "thread") {
+            const node = await ContextStore.readThread(nodeId as ThreadId);
+            if (node) {
+                return node;
+            }
+        }
+        throw new Error(`${scope} context node ${nodeId} was not found.`);
     }
 
     private static withTag(tags: string[], tag: string) {

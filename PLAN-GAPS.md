@@ -6,8 +6,8 @@ The branch already has the foundation: structured context nodes, structured memo
 
 ## Checkboxes
 
-- [ ] 1. Dashboard Editing and Configuration
-- [ ] 2. Approval Workflow
+- [x] 1. Dashboard Editing and Configuration
+- [x] 2. Approval Workflow
 - [ ] 3. Discord Category Bootstrap
 - [ ] 4. Channel Creation and Per-Channel Configuration
 - [ ] 5. Tool and Skill Boundaries

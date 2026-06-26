@@ -7,8 +7,10 @@ import {
     type MemoryScope,
     toDiscordCategoryId,
     toDiscordChannelId,
+    toDiscordGuildId,
     toDiscordThreadId,
 } from "../domain/context.ts";
+import { ContextStore } from "./contextStore.ts";
 import { SecretStore } from "./secretStore.ts";
 import { MemoryStore, type MemoryRecordInput } from "./memoryStore.ts";
 
@@ -131,6 +133,103 @@ describe("MemoryStore write rules", () => {
         })
     })
 })
+
+describe("MemoryStore approval workflow", () => {
+    test("approves proposals with edits and approval metadata when actor has permission", async () => {
+        await writeContextTree()
+        const proposal = await MemoryStore.create(memoryInput({
+            scope: "category",
+            nodeId: "100",
+            kind: "semantic",
+            status: "proposed",
+            content: "The dashboard owns configuration.",
+        }))
+
+        await expect(MemoryStore.approve(proposal.id, {userId: "user-2"}))
+            .rejects.toThrow("is not allowed to approve category memory")
+
+        const approved = await MemoryStore.approve(proposal.id, {userId: "user-1"}, {
+            content: "The dashboard owns detailed configuration.",
+            tags: ["dashboard"],
+            confidence: 0.95,
+        })
+
+        expect(approved.status).toBe("active")
+        expect(approved.userApproved).toBe(true)
+        expect(approved.approvedByUserId).toBe("user-1")
+        expect(approved.approvedAt).toBeDefined()
+        expect(approved.content).toBe("The dashboard owns detailed configuration.")
+
+        const actions = await MemoryStore.listAuditEvents()
+        expect(actions.map((event) => event.action)).toContain("approve")
+    })
+
+    test("allows approved roles to reject proposals", async () => {
+        await writeContextTree()
+        const proposal = await MemoryStore.create(memoryInput({
+            scope: "channel",
+            nodeId: "200",
+            kind: "task",
+            status: "proposed",
+            content: "Programming channel task memory needs review.",
+        }))
+
+        const rejected = await MemoryStore.reject(proposal.id, {userId: "user-3", roleIds: ["approver"]})
+
+        expect(rejected.status).toBe("archived")
+        const actions = await MemoryStore.listAuditEvents()
+        expect(actions.map((event) => event.action)).toContain("reject")
+    })
+
+    test("moves proposals only to lower scopes during approval review", async () => {
+        await writeContextTree()
+        const proposal = await MemoryStore.create(memoryInput({
+            scope: "category",
+            nodeId: "100",
+            kind: "semantic",
+            status: "proposed",
+            content: "This memory belongs in Programming.",
+        }))
+
+        const moved = await MemoryStore.moveProposalToLowerScope(proposal.id, "channel", "200", {userId: "user-1"})
+        expect(moved.scope).toBe("channel")
+        expect(moved.nodeId).toBe(toDiscordChannelId("200"))
+        expect(moved.status).toBe("proposed")
+
+        await expect(MemoryStore.moveProposalToLowerScope(moved.id, "category", "100", {userId: "user-1"}))
+            .rejects.toThrow("only be moved to a lower scope")
+    })
+})
+
+async function writeContextTree() {
+    const guildId = toDiscordGuildId("900")
+    const categoryId = toDiscordCategoryId("100")
+    const channelId = toDiscordChannelId("200")
+    const permissions = {
+        ownerUserIds: ["user-1"],
+        approvedRoleIds: ["approver"],
+        approvalPolicy: "owner" as const,
+    }
+    await ContextStore.writeCategory({
+        kind: "category",
+        id: categoryId,
+        guildId,
+        name: "YAH",
+        createdAt: "2026-06-25T00:00:00.000Z",
+        updatedAt: "2026-06-25T00:00:00.000Z",
+        permissions,
+    })
+    await ContextStore.writeChannel({
+        kind: "channel",
+        id: channelId,
+        parentCategoryId: categoryId,
+        guildId,
+        name: "Programming",
+        createdAt: "2026-06-25T00:00:00.000Z",
+        updatedAt: "2026-06-25T00:00:00.000Z",
+        permissions,
+    })
+}
 
 function memoryInput(options: {
     scope: MemoryScope

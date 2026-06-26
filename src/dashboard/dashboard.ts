@@ -171,6 +171,15 @@ export class Dashboard {
         this.app.post("/api/memory/:id/move", (req, res) => {
             void Dashboard.moveMemory(req, res)
         })
+        this.app.post("/api/memory/:id/approve", (req, res) => {
+            void Dashboard.approveMemory(req, res)
+        })
+        this.app.post("/api/memory/:id/reject", (req, res) => {
+            void Dashboard.rejectMemory(req, res)
+        })
+        this.app.post("/api/memory/:id/move-lower", (req, res) => {
+            void Dashboard.moveProposalToLowerScope(req, res)
+        })
         this.app.use(express.static(dashboardPublicDir))
     }
 
@@ -273,9 +282,74 @@ export class Dashboard {
         }
     }
 
+    private static async approveMemory(req: Request, res: Response) {
+        try {
+            const actor = Dashboard.approvalActorFrom(req)
+            const record = await MemoryStore.approve(
+                Dashboard.paramString(req, "id"),
+                actor,
+                Dashboard.memoryUpdateFrom(req.body),
+            )
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
+    private static async rejectMemory(req: Request, res: Response) {
+        try {
+            const record = await MemoryStore.reject(Dashboard.paramString(req, "id"), Dashboard.approvalActorFrom(req))
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
+    private static async moveProposalToLowerScope(req: Request, res: Response) {
+        try {
+            const scope = Dashboard.stringField(req.body, "scope")
+            const nodeId = Dashboard.stringField(req.body, "nodeId")
+            if (!Dashboard.isAllowed(scope, memoryScopes)) {
+                res.status(400).json({error: `Unsupported memory scope: ${scope}`})
+                return
+            }
+            const record = await MemoryStore.moveProposalToLowerScope(
+                Dashboard.paramString(req, "id"),
+                scope as MemoryScope,
+                nodeId,
+                Dashboard.approvalActorFrom(req),
+            )
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
     private static actorFrom(req: Request) {
         const actor = req.header("x-yah-actor") ?? Dashboard.bodyString(req.body, "actor")
         return actor && actor.trim().length > 0 ? actor.trim() : undefined
+    }
+
+    private static approvalActorFrom(req: Request) {
+        const userId = Dashboard.actorFrom(req)
+        if (!userId) {
+            throw new Error("Approving memory requires an actor.")
+        }
+        return {
+            userId,
+            roleIds: Dashboard.roleIdsFrom(req),
+        }
+    }
+
+    private static roleIdsFrom(req: Request) {
+        const header = req.header("x-yah-roles")
+        const bodyRoles = Dashboard.isObject(req.body) && Array.isArray(req.body.roleIds)
+            ? req.body.roleIds.filter((roleId): roleId is string => typeof roleId === "string")
+            : []
+        const headerRoles = header
+            ? header.split(",").map((roleId) => roleId.trim()).filter((roleId) => roleId.length > 0)
+            : []
+        return [...new Set([...headerRoles, ...bodyRoles])]
     }
 
     private static memoryUpdateFrom(body: unknown): MemoryRecordUpdate {

@@ -204,6 +204,127 @@ describe("Dashboard", () => {
         expect(actions).toContain("mark-deleted")
     })
 
+    test("handles proposal approval, rejection, and lower-scope moves", async () => {
+        const guildId = toDiscordGuildId("100")
+        const categoryId = toDiscordCategoryId("200")
+        const channelId = toDiscordChannelId("300")
+        const otherChannelId = toDiscordChannelId("301")
+        const permissions = {
+            ownerUserIds: ["user-1"],
+            approvedRoleIds: ["role-1"],
+            approvalPolicy: "owner" as const,
+        }
+        await ContextStore.writeCategory({
+            kind: "category",
+            id: categoryId,
+            guildId,
+            name: "YAH",
+            createdAt: "2026-06-25T00:00:00.000Z",
+            updatedAt: "2026-06-25T00:00:00.000Z",
+            permissions,
+        })
+        await ContextStore.writeChannel({
+            kind: "channel",
+            id: channelId,
+            parentCategoryId: categoryId,
+            guildId,
+            name: "Programming",
+            createdAt: "2026-06-25T00:00:00.000Z",
+            updatedAt: "2026-06-25T00:00:00.000Z",
+            permissions,
+        })
+        await ContextStore.writeChannel({
+            kind: "channel",
+            id: otherChannelId,
+            parentCategoryId: categoryId,
+            guildId,
+            name: "Email",
+            createdAt: "2026-06-25T00:00:00.000Z",
+            updatedAt: "2026-06-25T00:00:00.000Z",
+            permissions,
+        })
+        const dashboard = new Dashboard(config(channelId))
+        const approval = await MemoryStore.create({
+            scope: "category",
+            nodeId: categoryId,
+            kind: "semantic",
+            status: "proposed",
+            content: "Dashboard approvals are required.",
+            tags: [],
+            confidence: 0.7,
+            agentWritable: false,
+            userApproved: false,
+            visibility: "category",
+            source: {createdBy: "agent"},
+        })
+        const rejection = await MemoryStore.create({
+            scope: "channel",
+            nodeId: channelId,
+            kind: "task",
+            status: "proposed",
+            content: "Reject this task proposal.",
+            tags: [],
+            confidence: 0.7,
+            agentWritable: false,
+            userApproved: false,
+            visibility: "channel",
+            source: {createdBy: "agent"},
+        })
+        const movedProposal = await MemoryStore.create({
+            scope: "category",
+            nodeId: categoryId,
+            kind: "semantic",
+            status: "proposed",
+            content: "Move this proposal lower.",
+            tags: [],
+            confidence: 0.7,
+            agentWritable: false,
+            userApproved: false,
+            visibility: "category",
+            source: {createdBy: "agent"},
+        })
+
+        await withDashboardServer(dashboard, async (baseUrl) => {
+            const denied = await fetch(`${baseUrl}/api/memory/${approval.id}/approve`, {
+                method: "POST",
+                headers: {"x-yah-actor": "user-2"},
+            })
+            expect(denied.status).toBe(400)
+
+            const approved = await fetch(`${baseUrl}/api/memory/${approval.id}/approve`, {
+                method: "POST",
+                headers: {"content-type": "application/json", "x-yah-actor": "user-1"},
+                body: JSON.stringify({
+                    content: "Dashboard approval is required for shared memory.",
+                    tags: ["approval"],
+                }),
+            })
+            expect(approved.status).toBe(200)
+            const approvedBody = await approved.json()
+            expect(approvedBody.status).toBe("active")
+            expect(approvedBody.approvalSummary).toContain("approved by user-1")
+
+            const rejected = await fetch(`${baseUrl}/api/memory/${rejection.id}/reject`, {
+                method: "POST",
+                headers: {"x-yah-actor": "user-3", "x-yah-roles": "role-1"},
+            })
+            expect(rejected.status).toBe(200)
+            expect((await rejected.json()).status).toBe("archived")
+
+            const moved = await fetch(`${baseUrl}/api/memory/${movedProposal.id}/move-lower`, {
+                method: "POST",
+                headers: {"content-type": "application/json", "x-yah-actor": "user-1"},
+                body: JSON.stringify({scope: "channel", nodeId: otherChannelId}),
+            })
+            expect(moved.status).toBe(200)
+            expect((await moved.json()).nodeId).toBe(otherChannelId)
+        })
+
+        const actions = (await MemoryStore.listAuditEvents()).map((event) => event.action)
+        expect(actions).toContain("approve")
+        expect(actions).toContain("reject")
+    })
+
     test("serves dashboard html and static assets through express", async () => {
         const dashboard = new Dashboard(config(toDiscordChannelId("300")))
 
