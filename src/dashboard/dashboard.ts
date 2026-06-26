@@ -1,10 +1,21 @@
+import express, { type Express, type Request, type Response } from "express";
+import { createServer, type Server } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { memoryKinds, memoryScopes, memoryStatuses, type MemoryRecord, type MemoryScope } from "../domain/context.ts";
 import { type Config } from "../store/config.ts";
 import { ContextStore } from "../store/contextStore.ts";
-import { MemoryStore, type MemoryAuditEvent } from "../store/memoryStore.ts";
+import {
+    MemoryStore,
+    type MemoryAuditEvent,
+    type MemoryListFilter,
+    type MemoryRecordUpdate,
+} from "../store/memoryStore.ts";
 import { ThreadLogStore, type ThreadLogEntry } from "../store/threadLogStore.ts";
-import { type MemoryRecord } from "../domain/context.ts";
 
 type DashboardConfig = Config["dashboard"]
+
+const dashboardPublicDir = join(dirname(fileURLToPath(import.meta.url)), "public")
 
 export type DashboardMemoryView = MemoryRecord & {
     freshness: "current" | "stale" | "expired"
@@ -56,42 +67,30 @@ export type DashboardSnapshot = {
 }
 
 export class Dashboard {
-    private server?: Bun.Server<object>
+    public readonly app: Express
+    private server?: Server
 
-    constructor(private readonly config: Config) {}
+    constructor(private readonly config: Config) {
+        this.app = express()
+        this.configureRoutes()
+    }
 
     public start() {
         if (!this.config.dashboard.enabled || this.server) {
             return
         }
 
-        this.server = Bun.serve({
-            hostname: this.config.dashboard.host,
-            port: this.config.dashboard.port,
-            fetch: (request) => this.handle(request),
+        this.server = createServer(this.app)
+        this.server.listen(this.config.dashboard.port, this.config.dashboard.host, () => {
+            const address = this.server?.address()
+            const port = typeof address === "object" && address ? address.port : this.config.dashboard.port
+            console.log(`YAH dashboard listening on http://${this.config.dashboard.host}:${port}`)
         })
-        console.log(`YAH dashboard listening on http://${this.server.hostname}:${this.server.port}`)
     }
 
     public dispose() {
-        this.server?.stop()
+        this.server?.close()
         this.server = undefined
-    }
-
-    public async handle(request: Request) {
-        const url = new URL(request.url)
-        if (url.pathname === "/") {
-            return new Response(dashboardHtml(), {
-                headers: {"content-type": "text/html; charset=utf-8"},
-            })
-        }
-        if (url.pathname === "/api/dashboard") {
-            return Response.json(await Dashboard.snapshot(this.config))
-        }
-        if (url.pathname === "/api/config") {
-            return Response.json(Dashboard.publicConfig(this.config))
-        }
-        return new Response("Not found", {status: 404})
     }
 
     public static async snapshot(config: Config): Promise<DashboardSnapshot> {
@@ -141,6 +140,40 @@ export class Dashboard {
         }
     }
 
+    private configureRoutes() {
+        this.app.disable("x-powered-by")
+        this.app.use(express.json({limit: "1mb"}))
+        this.app.get("/api/dashboard", (req, res) => {
+            void Dashboard.snapshot(this.config)
+                .then((snapshot) => res.json(snapshot))
+                .catch((error) => Dashboard.sendError(res, error))
+        })
+        this.app.get("/api/config", (_req, res) => {
+            res.json(Dashboard.publicConfig(this.config))
+        })
+        this.app.get("/api/memory", (req, res) => {
+            void Dashboard.listMemory(req)
+                .then((records) => res.json(records))
+                .catch((error) => Dashboard.sendError(res, error, 400))
+        })
+        this.app.patch("/api/memory/:id", (req, res) => {
+            void Dashboard.updateMemory(req, res)
+        })
+        this.app.post("/api/memory/:id/archive", (req, res) => {
+            void Dashboard.archiveMemory(req, res)
+        })
+        this.app.post("/api/memory/:id/restore", (req, res) => {
+            void Dashboard.restoreMemory(req, res)
+        })
+        this.app.post("/api/memory/:id/delete", (req, res) => {
+            void Dashboard.deleteMemory(req, res)
+        })
+        this.app.post("/api/memory/:id/move", (req, res) => {
+            void Dashboard.moveMemory(req, res)
+        })
+        this.app.use(express.static(dashboardPublicDir))
+    }
+
     private static publicConfig(config: Config) {
         return {
             promptProvider: config.promptProvider,
@@ -150,6 +183,180 @@ export class Dashboard {
             janitorIntervalMs: config.janitorIntervalMs,
             dashboard: config.dashboard,
         }
+    }
+
+    private static async listMemory(req: Request) {
+        const filter: MemoryListFilter = {}
+        const scope = Dashboard.queryString(req, "scope")
+        const kind = Dashboard.queryString(req, "kind")
+        const status = Dashboard.queryString(req, "status")
+        if (scope) {
+            if (!Dashboard.isAllowed(scope, memoryScopes)) {
+                throw new Error(`Unsupported memory scope: ${scope}`)
+            }
+            filter.scope = scope
+        }
+        if (kind) {
+            if (!Dashboard.isAllowed(kind, memoryKinds)) {
+                throw new Error(`Unsupported memory kind: ${kind}`)
+            }
+            filter.kind = kind
+        }
+        if (status) {
+            if (!Dashboard.isAllowed(status, memoryStatuses)) {
+                throw new Error(`Unsupported memory status: ${status}`)
+            }
+            filter.status = status
+        }
+        filter.nodeId = Dashboard.queryString(req, "nodeId")
+        filter.text = Dashboard.queryString(req, "q") ?? Dashboard.queryString(req, "text")
+        const records = await MemoryStore.list(filter)
+        return records
+            .map((record) => Dashboard.memoryView(record))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    }
+
+    private static async updateMemory(req: Request, res: Response) {
+        try {
+            const id = Dashboard.paramString(req, "id")
+            const record = await MemoryStore.update(id, Dashboard.memoryUpdateFrom(req.body), Dashboard.actorFrom(req))
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
+    private static async archiveMemory(req: Request, res: Response) {
+        try {
+            const record = await MemoryStore.archive(Dashboard.paramString(req, "id"), Dashboard.actorFrom(req))
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
+    private static async restoreMemory(req: Request, res: Response) {
+        try {
+            const record = await MemoryStore.restore(Dashboard.paramString(req, "id"), Dashboard.actorFrom(req))
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
+    private static async deleteMemory(req: Request, res: Response) {
+        try {
+            const actor = Dashboard.actorFrom(req)
+            if (!actor) {
+                res.status(400).json({error: "Deleting memory requires an actor."})
+                return
+            }
+            const record = await MemoryStore.markDeleted(Dashboard.paramString(req, "id"), actor)
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
+    private static async moveMemory(req: Request, res: Response) {
+        try {
+            const scope = Dashboard.stringField(req.body, "scope")
+            const nodeId = Dashboard.stringField(req.body, "nodeId")
+            if (!Dashboard.isAllowed(scope, memoryScopes)) {
+                res.status(400).json({error: `Unsupported memory scope: ${scope}`})
+                return
+            }
+            const record = await MemoryStore.move(Dashboard.paramString(req, "id"), scope as MemoryScope, nodeId, Dashboard.actorFrom(req))
+            res.json(Dashboard.memoryView(record))
+        } catch (error) {
+            Dashboard.sendMemoryError(res, error)
+        }
+    }
+
+    private static actorFrom(req: Request) {
+        const actor = req.header("x-yah-actor") ?? Dashboard.bodyString(req.body, "actor")
+        return actor && actor.trim().length > 0 ? actor.trim() : undefined
+    }
+
+    private static memoryUpdateFrom(body: unknown): MemoryRecordUpdate {
+        if (!Dashboard.isObject(body)) {
+            return {}
+        }
+        const update: MemoryRecordUpdate = {}
+        const assign = <Key extends keyof MemoryRecordUpdate>(key: Key) => {
+            if (body[key] !== undefined) {
+                update[key] = body[key] as MemoryRecordUpdate[Key]
+            }
+        }
+        assign("kind")
+        assign("status")
+        assign("content")
+        assign("tags")
+        assign("confidence")
+        assign("agentWritable")
+        assign("userApproved")
+        assign("visibility")
+        assign("source")
+        assign("validFrom")
+        assign("validUntil")
+        assign("supersedes")
+        assign("supersededBy")
+        assign("approvedByUserId")
+        assign("approvedAt")
+        return update
+    }
+
+    private static stringField(body: unknown, field: string) {
+        const value = Dashboard.bodyString(body, field)
+        if (!value || value.trim().length === 0) {
+            throw new Error(`${field} must be a non-empty string.`)
+        }
+        return value.trim()
+    }
+
+    private static queryString(req: Request, field: string) {
+        const value = req.query[field]
+        if (Array.isArray(value)) {
+            return typeof value[0] === "string" ? value[0] : undefined
+        }
+        return typeof value === "string" ? value : undefined
+    }
+
+    private static paramString(req: Request, field: string) {
+        const value = req.params[field]
+        if (Array.isArray(value)) {
+            return value[0]
+        }
+        if (typeof value !== "string" || value.length === 0) {
+            throw new Error(`${field} route parameter is required.`)
+        }
+        return value
+    }
+
+    private static bodyString(body: unknown, field: string) {
+        if (!Dashboard.isObject(body)) {
+            return undefined
+        }
+        const value = body[field]
+        return typeof value === "string" ? value : undefined
+    }
+
+    private static isObject(value: unknown): value is Record<string, unknown> {
+        return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    }
+
+    private static isAllowed<T extends readonly string[]>(value: string, allowed: T): value is T[number] {
+        return allowed.includes(value)
+    }
+
+    private static sendMemoryError(res: Response, error: unknown) {
+        const message = error instanceof Error ? error.message : "Dashboard memory request failed."
+        Dashboard.sendError(res, error, message.includes("was not found") ? 404 : 400)
+    }
+
+    private static sendError(res: Response, error: unknown, status = 500) {
+        const message = error instanceof Error ? error.message : "Dashboard request failed."
+        res.status(status).json({error: message})
     }
 
     private static memoryView(record: MemoryRecord): DashboardMemoryView {
@@ -200,261 +407,4 @@ export class Dashboard {
         const logs = await Promise.all(ids.map((id) => ThreadLogStore.list(id)))
         return logs.flat()
     }
-}
-
-function dashboardHtml() {
-    return `<!doctype html>
-<html lang="en">
-	<head>
-	  <meta charset="utf-8">
-	  <meta name="viewport" content="width=device-width, initial-scale=1">
-	  <title>YAH Dashboard</title>
-	  <style>
-	    :root {
-	      color-scheme: dark;
-	      --ink: #ece7dc;
-	      --muted: #a59d8f;
-	      --line: #37342f;
-	      --paper: #11100e;
-	      --panel: #191715;
-	      --panel-strong: #211f1b;
-	      --nav: #151412;
-	      --accent: #58c7b5;
-	      --warn: #e0a84f;
-	      --bad: #e06b62;
-	      --ok: #8bcf75;
-	      --shadow: rgba(0, 0, 0, 0.34);
-	    }
-	    * { box-sizing: border-box; }
-	    body {
-	      margin: 0;
-	      font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
-	      background:
-	        radial-gradient(circle at top left, rgba(88, 199, 181, 0.08), transparent 28rem),
-	        linear-gradient(180deg, #151311 0%, var(--paper) 24rem);
-	      color: var(--ink);
-	    }
-	    header {
-	      display: grid;
-	      grid-template-columns: 1fr auto;
-      gap: 24px;
-	      align-items: end;
-	      padding: 28px 32px 18px;
-	      border-bottom: 1px solid var(--line);
-	      background: rgba(25, 23, 21, 0.92);
-	      box-shadow: 0 12px 30px var(--shadow);
-	    }
-	    h1 { margin: 0; font-size: 32px; letter-spacing: 0; }
-	    h2 { margin: 0 0 12px; font-size: 18px; letter-spacing: 0; }
-    main {
-      display: grid;
-      grid-template-columns: 240px minmax(0, 1fr);
-      min-height: calc(100vh - 92px);
-    }
-	    nav {
-	      padding: 18px;
-	      border-right: 1px solid var(--line);
-	      background: var(--nav);
-	    }
-	    button {
-	      width: 100%;
-	      border: 1px solid transparent;
-      background: transparent;
-      padding: 10px 12px;
-      text-align: left;
-      font: inherit;
-	      color: var(--ink);
-	      cursor: pointer;
-	    }
-	    button:hover {
-	      border-color: #4c473f;
-	      background: #1d1b18;
-	    }
-	    button:focus-visible {
-	      outline: 2px solid var(--accent);
-	      outline-offset: 2px;
-	    }
-	    button.active {
-	      border-color: var(--accent);
-	      background: var(--panel-strong);
-	      color: #f7f0e3;
-	    }
-	    section { padding: 24px 28px 40px; }
-    .meta {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: end;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 14px;
-    }
-	    .card {
-	      border: 1px solid var(--line);
-	      border-radius: 6px;
-	      background: var(--panel);
-	      padding: 14px;
-	      min-width: 0;
-	      box-shadow: 0 8px 24px var(--shadow);
-	    }
-    .title {
-      display: flex;
-      gap: 8px;
-      justify-content: space-between;
-      align-items: baseline;
-      margin-bottom: 8px;
-      font-weight: 700;
-    }
-	    .pill {
-	      display: inline-block;
-	      border: 1px solid var(--line);
-	      border-radius: 999px;
-	      padding: 2px 8px;
-	      color: var(--muted);
-	      background: #12110f;
-	      font-size: 12px;
-	      white-space: nowrap;
-	    }
-	    .pending { color: var(--warn); border-color: #8d672a; background: #21190e; }
-	    .archived { color: var(--bad); border-color: #7d3934; background: #241211; }
-	    .current { color: var(--ok); border-color: #4d7a40; background: #142011; }
-	    pre, code {
-	      font-family: "Berkeley Mono", "SFMono-Regular", Consolas, monospace;
-	      font-size: 12px;
-	      color: #d8d2c8;
-	    }
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-	    .table {
-	      width: 100%;
-	      border-collapse: collapse;
-	      background: var(--panel);
-	      border: 1px solid var(--line);
-	      box-shadow: 0 8px 24px var(--shadow);
-	    }
-    .table th, .table td {
-      padding: 9px 10px;
-      border-bottom: 1px solid var(--line);
-      text-align: left;
-      vertical-align: top;
-      overflow-wrap: anywhere;
-    }
-    .table th {
-      color: var(--muted);
-      font-weight: 400;
-    }
-    .stack { display: grid; gap: 14px; }
-    @media (max-width: 760px) {
-      header { grid-template-columns: 1fr; }
-      main { grid-template-columns: 1fr; }
-      nav {
-        display: flex;
-        overflow-x: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--line);
-      }
-      nav button {
-        width: auto;
-        min-width: max-content;
-      }
-      .meta { justify-content: start; }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>YAH Dashboard</h1>
-    <div class="meta" id="meta"></div>
-  </header>
-  <main>
-    <nav id="tabs"></nav>
-    <div id="content"></div>
-  </main>
-  <script>
-    const tabs = [
-      ["config", "Config"],
-      ["tree", "Context Tree"],
-      ["memory", "Memory"],
-      ["approvals", "Pending"],
-      ["archive", "Archive"],
-      ["sources", "Sources"],
-      ["janitor", "Janitor"]
-    ];
-    const state = {snapshot: null, active: "config"};
-    const text = (value) => value === undefined || value === null || value === "" ? "none" : String(value);
-    const esc = (value) => text(value).replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[char]));
-    const card = (title, body, tags = []) => '<article class="card"><div class="title"><span>' + esc(title) + '</span><span>' + tags.map((tag) => '<span class="pill ' + esc(tag.className || "") + '">' + esc(tag.label) + '</span>').join(" ") + '</span></div>' + body + '</article>';
-    const recordCard = (record) => card(record.kind + " / " + record.scope, [
-      '<pre>' + esc(record.content) + '</pre>',
-      '<p><span class="pill">' + esc(record.id) + '</span> <span class="pill">' + esc(record.nodeId) + '</span> <span class="pill ' + record.freshness + '">' + esc(record.freshness) + '</span></p>',
-      '<p><strong>Source</strong><br><code>' + esc(record.sourceSummary) + '</code></p>',
-      '<p><strong>Approval</strong><br><code>' + esc(record.approvalSummary) + '</code></p>',
-      '<p><strong>Scope</strong><br><code>' + esc(record.scope + " / " + record.visibility) + '</code></p>',
-      '<p><strong>Updated</strong><br><code>' + esc(record.updatedAt) + '</code></p>',
-      '<p><strong>Tags</strong><br><code>' + esc(record.tags.join(", ") || "none") + '</code></p>'
-    ].join(""), [{label: record.status, className: record.status === "proposed" ? "pending" : record.status === "archived" ? "archived" : ""}]);
-    function renderNav() {
-      document.getElementById("tabs").innerHTML = tabs.map(([id, label]) => '<button data-tab="' + id + '" class="' + (state.active === id ? "active" : "") + '">' + label + '</button>').join("");
-      document.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => {
-        state.active = button.dataset.tab;
-        render();
-      }));
-    }
-    function render() {
-      const snapshot = state.snapshot;
-      renderNav();
-      if (!snapshot) return;
-      document.getElementById("meta").innerHTML = [
-        '<span>' + esc(snapshot.config.agentProvider) + '</span>',
-        '<span>' + esc(snapshot.config.model) + '</span>',
-        '<span>' + esc(snapshot.generatedAt) + '</span>'
-      ].join("");
-      const sections = {
-        config: renderConfig(snapshot),
-        tree: renderTree(snapshot),
-        memory: renderRecords("Memory", snapshot.memory.category.concat(snapshot.memory.channel)),
-        approvals: renderRecords("Pending Approvals", snapshot.memory.pendingApprovals),
-        archive: renderRecords("Archived Memory", snapshot.memory.archived),
-        sources: renderSources(snapshot),
-        janitor: renderRecords("Janitor Digests", snapshot.memory.janitorDigests)
-      };
-      document.getElementById("content").innerHTML = sections[state.active];
-    }
-    function renderConfig(snapshot) {
-      const cfg = snapshot.config;
-      return '<section class="active stack"><h2>Config</h2><div class="grid">' +
-        card("Providers", '<p><strong>Prompt</strong><br><code>' + esc(cfg.promptProvider) + '</code></p><p><strong>Agent</strong><br><code>' + esc(cfg.agentProvider) + '</code></p><p><strong>Model</strong><br><code>' + esc(cfg.model) + '</code></p>') +
-        card("Discord", '<p><strong>Task Channel</strong><br><code>' + esc(cfg.channelId) + '</code></p><p><strong>Detailed Config</strong><br><code>dashboard</code></p>') +
-        card("Restrictions", '<p><code>' + esc(snapshot.restrictions.channelBoundaries) + '</code></p><p><code>' + esc(snapshot.restrictions.approvalBoundary) + '</code></p>') +
-        card("Dashboard", '<p><strong>Host</strong><br><code>' + esc(cfg.dashboard.host) + '</code></p><p><strong>Port</strong><br><code>' + esc(cfg.dashboard.port) + '</code></p>') +
-      '</div></section>';
-    }
-    function renderTree(snapshot) {
-      const rows = snapshot.restrictions.nodePermissions.map((node) => '<tr><td>' + esc(node.kind) + '</td><td>' + esc(node.name) + '</td><td><code>' + esc(node.id) + '</code></td><td>' + esc(node.approvalPolicy) + '</td><td>' + esc(node.ownerUserIds.join(", ") || "none") + '</td><td>' + esc(node.approvedRoleIds.join(", ") || "none") + '</td></tr>').join("");
-      return '<section class="active stack"><h2>Context Tree</h2><table class="table"><thead><tr><th>Kind</th><th>Name</th><th>ID</th><th>Approval</th><th>Owners</th><th>Roles</th></tr></thead><tbody>' + (rows || "<tr><td colspan='6'>No context nodes registered.</td></tr>") + '</tbody></table></section>';
-    }
-    function renderRecords(title, records) {
-      return '<section class="active stack"><h2>' + esc(title) + '</h2><div class="grid">' + (records.length ? records.map(recordCard).join("") : card("Empty", "<p>No records.</p>")) + '</div></section>';
-    }
-    function renderSources(snapshot) {
-      const auditRows = snapshot.sourceHistory.auditEvents.slice(0, 80).map((event) => '<tr><td>' + esc(event.createdAt) + '</td><td>' + esc(event.action) + '</td><td><code>' + esc(event.memoryId) + '</code></td><td>' + esc(event.actor) + '</td><td>' + esc(event.note) + '</td></tr>').join("");
-      const logRows = snapshot.sourceHistory.threadLogs.slice(0, 80).map((entry) => '<tr><td>' + esc(entry.createdAt) + '</td><td>' + esc(entry.role) + '</td><td><code>' + esc(entry.threadId) + '</code></td><td>' + esc(entry.discordMessageId) + '</td><td>' + esc(entry.content) + '</td></tr>').join("");
-      return '<section class="active stack"><h2>Source History</h2><table class="table"><thead><tr><th>Time</th><th>Action</th><th>Memory</th><th>Actor</th><th>Note</th></tr></thead><tbody>' + (auditRows || "<tr><td colspan='5'>No audit events.</td></tr>") + '</tbody></table><table class="table"><thead><tr><th>Time</th><th>Role</th><th>Thread</th><th>Message</th><th>Content</th></tr></thead><tbody>' + (logRows || "<tr><td colspan='5'>No thread logs.</td></tr>") + '</tbody></table></section>';
-    }
-    fetch("/api/dashboard").then((response) => response.json()).then((snapshot) => {
-      state.snapshot = snapshot;
-      render();
-    }).catch((error) => {
-      document.getElementById("content").innerHTML = '<section class="active"><h2>Error</h2><pre>' + esc(error.message) + '</pre></section>';
-    });
-  </script>
-</body>
-</html>`
 }

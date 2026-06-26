@@ -20,7 +20,7 @@ agentProvider: openai
 model: gpt-5
 channelId: "DISCORD_CHANNEL_ID"
 dashboard:
-  enabled: true
+  enabled: true # optional; enabled by default
   host: 127.0.0.1
   port: 8787
 ```

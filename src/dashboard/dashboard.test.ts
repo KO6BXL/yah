@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Dashboard } from "./dashboard.ts";
@@ -127,6 +128,96 @@ describe("Dashboard", () => {
         expect(snapshot.sourceHistory.auditEvents.length).toBeGreaterThanOrEqual(2)
         expect(snapshot.sourceHistory.threadLogs).toHaveLength(1)
     })
+
+    test("handles dashboard memory search and lifecycle writes with audit events", async () => {
+        const channelId = toDiscordChannelId("300")
+        const otherChannelId = toDiscordChannelId("301")
+        const dashboard = new Dashboard(config(channelId))
+        const memory = await MemoryStore.create({
+            scope: "channel",
+            nodeId: channelId,
+            kind: "semantic",
+            status: "active",
+            content: "Dashboard memory can be edited through API routes.",
+            tags: ["dashboard"],
+            confidence: 0.7,
+            agentWritable: false,
+            userApproved: true,
+            visibility: "channel",
+            source: {createdBy: "user"},
+        }, "user-1")
+
+        await withDashboardServer(dashboard, async (baseUrl) => {
+            const search = await fetch(`${baseUrl}/api/memory?q=edited`)
+            expect(search.status).toBe(200)
+            expect(await search.json()).toHaveLength(1)
+
+            const updated = await fetch(`${baseUrl}/api/memory/${memory.id}`, {
+                method: "PATCH",
+                headers: {"content-type": "application/json", "x-yah-actor": "user-2"},
+                body: JSON.stringify({
+                    content: "Dashboard memory was edited through API routes.",
+                    tags: ["dashboard", "api"],
+                    confidence: 0.95,
+                }),
+            })
+            expect(updated.status).toBe(200)
+            expect((await updated.json()).content).toBe("Dashboard memory was edited through API routes.")
+
+            const archived = await fetch(`${baseUrl}/api/memory/${memory.id}/archive`, {
+                method: "POST",
+                headers: {"x-yah-actor": "user-2"},
+            })
+            expect(archived.status).toBe(200)
+            expect((await archived.json()).status).toBe("archived")
+
+            const restored = await fetch(`${baseUrl}/api/memory/${memory.id}/restore`, {
+                method: "POST",
+                headers: {"x-yah-actor": "user-2"},
+            })
+            expect(restored.status).toBe(200)
+            expect((await restored.json()).status).toBe("active")
+
+            const moved = await fetch(`${baseUrl}/api/memory/${memory.id}/move`, {
+                method: "POST",
+                headers: {"content-type": "application/json", "x-yah-actor": "user-2"},
+                body: JSON.stringify({scope: "channel", nodeId: otherChannelId}),
+            })
+            expect(moved.status).toBe(200)
+            expect((await moved.json()).nodeId).toBe(otherChannelId)
+
+            const deleted = await fetch(`${baseUrl}/api/memory/${memory.id}/delete`, {
+                method: "POST",
+                headers: {"x-yah-actor": "user-2"},
+            })
+            expect(deleted.status).toBe(200)
+            expect((await deleted.json()).status).toBe("deleted")
+        })
+
+        const actions = (await MemoryStore.listAuditEvents())
+            .filter((event) => event.memoryId === memory.id)
+            .map((event) => event.action)
+        expect(actions).toContain("update")
+        expect(actions).toContain("archive")
+        expect(actions).toContain("restore")
+        expect(actions).toContain("move")
+        expect(actions).toContain("mark-deleted")
+    })
+
+    test("serves dashboard html and static assets through express", async () => {
+        const dashboard = new Dashboard(config(toDiscordChannelId("300")))
+
+        await withDashboardServer(dashboard, async (baseUrl) => {
+            const html = await fetch(`${baseUrl}/`)
+            expect(html.status).toBe(200)
+            expect(html.headers.get("content-type")).toContain("text/html")
+            expect(await html.text()).toContain('<script type="module" src="/app.js"></script>')
+
+            const script = await fetch(`${baseUrl}/app.js`)
+            expect(script.status).toBe(200)
+            expect(await script.text()).toContain('fetch("/api/dashboard")')
+        })
+    })
 })
 
 function config(channelId: string): Config {
@@ -140,5 +231,22 @@ function config(channelId: string): Config {
             host: "127.0.0.1",
             port: 8787,
         },
+    }
+}
+
+async function withDashboardServer(dashboard: Dashboard, run: (baseUrl: string) => Promise<void>) {
+    const server = await new Promise<Server>((resolve) => {
+        const listening = dashboard.app.listen(0, "127.0.0.1", () => resolve(listening))
+    })
+    const address = server.address()
+    if (!address || typeof address !== "object") {
+        throw new Error("Dashboard test server did not bind to a TCP address.")
+    }
+    try {
+        await run(`http://127.0.0.1:${address.port}`)
+    } finally {
+        await new Promise<void>((resolve, reject) => {
+            server.close((error) => error ? reject(error) : resolve())
+        })
     }
 }

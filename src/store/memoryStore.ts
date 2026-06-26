@@ -26,7 +26,7 @@ export type MemoryListFilter = {
     text?: string
 }
 
-export type MemoryAuditAction = "create" | "update" | "archive" | "supersede" | "mark-deleted"
+export type MemoryAuditAction = "create" | "update" | "archive" | "restore" | "move" | "supersede" | "mark-deleted"
 
 export type MemoryAuditEvent = {
     id: string
@@ -76,6 +76,29 @@ export class MemoryStore {
             updatedAt: new Date().toISOString(),
         } as MemoryRecord);
         await MemoryStore.writeRecord(record, "archive", actor);
+        return record;
+    }
+
+    public static async restore(id: string, actor?: string) {
+        const existing = await MemoryStore.readRequired(id);
+        const record = MemoryStore.applyWriteRules(assertMemoryRecord({
+            ...existing,
+            status: "active",
+            updatedAt: new Date().toISOString(),
+        } as MemoryRecord), existing);
+        await MemoryStore.writeRecord(record, "restore", actor);
+        return record;
+    }
+
+    public static async move(id: string, scope: MemoryScope, nodeId: string, actor?: string) {
+        const existing = await MemoryStore.readRequired(id);
+        const record = MemoryStore.applyWriteRules(assertMemoryRecord({
+            ...existing,
+            scope,
+            nodeId,
+            updatedAt: new Date().toISOString(),
+        } as MemoryRecord), existing);
+        await MemoryStore.writeRecord(record, "move", actor, `Moved from ${existing.scope}:${existing.nodeId} to ${scope}:${nodeId}`);
         return record;
     }
 
