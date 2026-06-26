@@ -4,6 +4,21 @@ This file tracks implementation gaps between `PLAN-FOR-FUTURE.md`, `PLAN-FOR-MEM
 
 The branch already has the foundation: structured context nodes, structured memory records, file-backed stores, Discord thread flow, `/complete`, basic thread completion summaries, janitor runs, and a read-only dashboard snapshot. The remaining work is mostly turning those pieces into an enforced, dashboard-managed lifecycle.
 
+## Checkboxes
+
+- [ ] 1. Dashboard Editing and Configuration
+- [ ] 2. Approval Workflow
+- [ ] 3. Discord Category Bootstrap
+- [ ] 4. Channel Creation and Per-Channel Configuration
+- [ ] 5. Tool and Skill Boundaries
+- [ ] 6. Retrieval and Context Assembly
+- [ ] 7. Topic Summaries and Fact Index
+- [ ] 8. Janitor Maturity
+- [ ] 9. Conflict Handling
+- [ ] 10. Permissions and Team Use
+- [ ] 11. Agent Memory Write Integration
+- [ ] 12. Provider and Legacy Surface Cleanup
+
 ## 1. Dashboard Editing and Configuration
 
 Current state:
