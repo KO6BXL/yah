@@ -134,6 +134,22 @@ export class MemoryStore {
         return records.filter((record) => MemoryStore.matchesFilter(record, filter));
     }
 
+    public static async listAuditEvents() {
+        try {
+            const text = await readFile(await MemoryStore.auditPath(), "utf8");
+            return text
+                .split("\n")
+                .filter((line) => line.trim().length > 0)
+                .map((line) => JSON.parse(line) as MemoryAuditEvent);
+        } catch (error) {
+            const err = error as NodeJS.ErrnoException;
+            if (err.code === "ENOENT") {
+                return [];
+            }
+            throw error;
+        }
+    }
+
     private static async readRequired(id: string) {
         const record = await MemoryStore.read(id);
         if (!record) {

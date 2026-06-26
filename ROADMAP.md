@@ -99,11 +99,11 @@ This roadmap turns `PLAN-FOR-FUTURE.md` and `PLAN-FOR-MEMORY.md` into an impleme
 
 ## 12. Build the Dashboard Foundation
 
-- [ ] Add a web app shell.
-- [ ] Add config views for categories, channels, restrictions, and model/provider settings.
-- [ ] Add memory views for category memory, channel memory, pending approvals, archived memory, source history, and janitor digests.
-- [ ] Keep Discord as notification/task input, not detailed configuration.
-- [ ] Make every memory record inspectable: belief, source, approval, scope, and freshness.
+- [x] Add a web app shell.
+- [x] Add config views for categories, channels, restrictions, and model/provider settings.
+- [x] Add memory views for category memory, channel memory, pending approvals, archived memory, source history, and janitor digests.
+- [x] Keep Discord as notification/task input, not detailed configuration.
+- [x] Make every memory record inspectable: belief, source, approval, scope, and freshness.
 
 ## 13. Add Approval Workflows
 

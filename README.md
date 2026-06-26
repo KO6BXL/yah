@@ -19,6 +19,10 @@ promptProvider: discord
 agentProvider: openai
 model: gpt-5
 channelId: "DISCORD_CHANNEL_ID"
+dashboard:
+  enabled: true
+  host: 127.0.0.1
+  port: 8787
 ```
 
 Secrets live in `$DATA_DIR/.env`.

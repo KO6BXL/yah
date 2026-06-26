@@ -8,6 +8,15 @@ const configSchema = z.object({
     model: z.string(),
     channelId: z.string(),
     janitorIntervalMs: z.number().int().positive().optional(),
+    dashboard: z.object({
+        enabled: z.boolean().default(false),
+        host: z.string().default("127.0.0.1"),
+        port: z.number().int().positive().default(8787),
+    }).default({
+        enabled: false,
+        host: "127.0.0.1",
+        port: 8787,
+    }),
 })
 
 export type Config = z.infer<typeof configSchema>
